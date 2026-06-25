@@ -29,12 +29,4 @@ class Migration(migrations.Migration):
                 'db_table': 'webinars',
             },
         ),
-        migrations.RemoveConstraint(
-            model_name='eventregistration',
-            name='unique_event_email_registration',
-        ),
-        migrations.RemoveConstraint(
-            model_name='teammembersocial',
-            name='unique_team_member_platform',
-        ),
     ]

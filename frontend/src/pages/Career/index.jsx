@@ -287,3 +287,9 @@ export function OfferLetter() {
     </div>
   );
 }
+
+export function CareerAdmin({ tab }) {
+  if (tab === 'enrollments') return <EnrollmentTracker />;
+  if (tab === 'offers')      return <OfferLetter />;
+  return <PositionTracker />;
+}

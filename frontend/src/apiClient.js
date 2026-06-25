@@ -115,7 +115,7 @@ export const createOfferLetter = (data) => adminFetch('/api/career/offer-letters
 export const updateOfferLetter = (id, data) => adminFetch(`/api/career/offer-letters/${id}`, 'PATCH', data);
 export const deleteOfferLetter = (id) => adminFetch(`/api/career/offer-letters/${id}`, 'DELETE');
 
-export const getCandidates = () => adminFetch('/api/career/candidates').catch(() => ({ data: [] }));
+export const getCandidatesDetail = () => adminFetch('/api/career/candidates').catch(() => ({ data: [] }));
 export const updateCandidate = (id, data) => adminFetch(`/api/career/candidates/${id}`, 'PUT', data);
 
 export const getFormGates = () => adminFetch('/api/career/form-gates').catch(() => ({ gates: {} }));
@@ -136,3 +136,42 @@ export const updateSetting = (key, data) => adminFetch(`/api/settings/${key}`, '
 // PROFILE SETTINGS
 export const getProfile = () => adminFetch('/api/accounts/profile');
 export const updateProfile = (data) => adminFetch('/api/accounts/profile', 'PUT', data);
+
+// Career page aliases used by older pages
+export const getApplicants = getCandidates;
+export const updateApplicant = updateCandidateStatus;
+export const getOffers = getOfferLetters;
+export const createOffer = createOfferLetter;
+export const updateOffer = (id, data) => updateOfferLetter(id, data);
+
+// Team member aliases
+export const getTeam = getTeamMembers;
+export const createMember = createTeamMember;
+export const updateMember = (id, data) => updateTeamMember(id, data);
+export const deleteMember = (id) => deleteTeamMember(id);
+
+// OLD-NAME ALIASES — keep pages that reference previous model names working
+// Articles = Departments
+export const getArticles = getDepartments;
+export const createArticle = createDepartment;
+export const updateArticle = (id, data) => updateDepartment(id, data);
+export const deleteArticle = (id) => deleteDepartment(id);
+// YouTube Videos = TeamMemberSocials
+export const getYoutubeVideos = () => adminFetch('/api/landing/team_member_socials');
+export const createYoutubeVideo = (data) => adminFetch('/api/landing/team_member_socials', 'POST', data);
+export const updateYoutubeVideo = (id, data) => adminFetch(`/api/landing/team_member_socials/${id}`, 'PATCH', data);
+export const deleteYoutubeVideo = (id) => adminFetch(`/api/landing/team_member_socials/${id}`, 'DELETE');
+// Workshops = EventRegistrations
+export const getWorkshops = getEventRegistrations;
+export const createWorkshop = createEventRegistration;
+export const updateWorkshop = (id, data) => updateEventRegistration(id, data);
+export const deleteWorkshop = (id) => deleteEventRegistration(id);
+// Guests = EventSpeakers
+export const getGuests = getEventSpeakers;
+export const createGuest = createEventSpeaker;
+export const updateGuest = (id, data) => updateEventSpeaker(id, data);
+export const deleteGuest = (id) => deleteEventSpeaker(id);
+// Webinar Events = Webinar listings
+export const getWebinarListings = () => adminFetch('/api/landing/webinars').catch(() => []);
+export const updateWebinarEvent = (id, data) => adminFetch(`/api/landing/webinars/${id}`, 'PATCH', data);
+export const deleteWebinarEvent = (id) => adminFetch(`/api/landing/webinars/${id}`, 'DELETE');

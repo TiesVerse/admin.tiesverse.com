@@ -69,18 +69,35 @@ def execute(sql, params=None):
 
 
 def setup_tables():
-    """Create registrations table if it doesn't exist yet."""
+    """Create/migrate registrations table."""
     execute("""
         CREATE TABLE IF NOT EXISTS registrations (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_id    TEXT,
-            event_title TEXT NOT NULL,
-            event_type  TEXT DEFAULT 'event',
-            name        TEXT NOT NULL,
-            email       TEXT NOT NULL,
-            phone       TEXT,
-            city        TEXT,
-            registered_at TEXT NOT NULL,
-            email_sent  INTEGER DEFAULT 0
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id            TEXT,
+            event_title         TEXT NOT NULL,
+            event_type          TEXT DEFAULT 'event',
+            name                TEXT NOT NULL,
+            email               TEXT NOT NULL,
+            phone               TEXT,
+            city                TEXT,
+            registered_at       TEXT NOT NULL,
+            email_sent          INTEGER DEFAULT 0,
+            payment_required    INTEGER DEFAULT 0,
+            amount              INTEGER DEFAULT 0,
+            razorpay_order_id   TEXT,
+            razorpay_payment_id TEXT,
+            payment_status      TEXT DEFAULT 'free'
         )
     """)
+    # Add payment columns to existing deployments that only have the base table
+    for col, definition in [
+        ('payment_required',    'INTEGER DEFAULT 0'),
+        ('amount',              'INTEGER DEFAULT 0'),
+        ('razorpay_order_id',   'TEXT'),
+        ('razorpay_payment_id', 'TEXT'),
+        ('payment_status',      "TEXT DEFAULT 'free'"),
+    ]:
+        try:
+            execute(f'ALTER TABLE registrations ADD COLUMN {col} {definition}')
+        except TursoError:
+            pass  # column already exists

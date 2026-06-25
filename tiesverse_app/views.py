@@ -1,12 +1,11 @@
 from rest_framework import viewsets
 from rest_framework.permissions import DjangoModelPermissions, IsAuthenticated
-from .models import Event, Article, YouTubeVideo, Workshop, TeamMember, Guest, WebinarListing
+from .models import Department, TeamMember, TeamMemberSocial, Event, EventSpeaker, EventRegistration
 from .serializers import (
-    EventSerializer, ArticleSerializer, YouTubeVideoSerializer,
-    WorkshopSerializer, TeamMemberSerializer, GuestSerializer, WebinarListingSerializer
+    DepartmentSerializer, TeamMemberSerializer, TeamMemberSocialSerializer,
+    EventSerializer, EventSpeakerSerializer, EventRegistrationSerializer
 )
 from . import supabase_sync
-
 
 class StaffModelPermissions(DjangoModelPermissions):
     perms_map = {

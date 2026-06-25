@@ -1,27 +1,16 @@
-import uuid
 from django.db import models
 from django.utils.text import slugify
 
 
-class Event(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    title = models.TextField()
-    date = models.TextField(blank=True, null=True)
-    time = models.TextField(blank=True, null=True)
-    location = models.TextField(blank=True, null=True)
-    description = models.TextField(blank=True, null=True)
-    image_url = models.TextField(blank=True, null=True)
-    form_link = models.TextField(blank=True, null=True)
-    is_featured = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
-    type = models.TextField(blank=True, null=True)
-    status = models.TextField(default='REGISTRATION OPEN', blank=True, null=True)
+class Department(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = 'events'
+        db_table = 'departments'
 
     def __str__(self):
-        return self.title
+        return self.name
 
     def to_supabase_dict(self):
         status = self.status or 'upcoming'
@@ -56,10 +45,10 @@ class Article(models.Model):
     date = models.TextField(blank=True, null=True)
 
     class Meta:
-        db_table = 'articles'
+        db_table = 'team_members'
 
     def __str__(self):
-        return self.title
+        return self.name
 
     def to_supabase_dict(self):
         slug = self.display_id or slugify(self.title) or str(self.pk)
@@ -86,10 +75,13 @@ class YouTubeVideo(models.Model):
     video_url = models.TextField(blank=True, null=True)
 
     class Meta:
-        db_table = 'youtube_videos'
+        db_table = 'team_member_socials'
+        constraints = [
+            models.UniqueConstraint(fields=['team_member', 'platform'], name='unique_team_member_platform')
+        ]
 
     def __str__(self):
-        return self.title or "Untitled Video"
+        return f"{self.team_member.name} - {self.platform}"
 
     def to_supabase_dict(self):
         return {
@@ -105,17 +97,22 @@ class Workshop(models.Model):
     title = models.TextField()
     category = models.TextField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-    image_url = models.TextField(blank=True, null=True)
-    date = models.TextField(blank=True, null=True)
-    time = models.TextField(blank=True, null=True)
-    location = models.TextField(blank=True, null=True)
-    form_link = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
-    register_link = models.TextField(blank=True, null=True)
-    event_id = models.UUIDField(blank=True, null=True)
+    event_type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='upcoming')
+    cover_image_url = models.CharField(max_length=500, blank=True, null=True)
+    venue_name = models.CharField(max_length=255, blank=True, null=True)
+    venue_address = models.TextField(blank=True, null=True)
+    meeting_link = models.CharField(max_length=500, blank=True, null=True)
+    start_datetime = models.DateTimeField()
+    end_datetime = models.DateTimeField(blank=True, null=True)
+    registration_deadline = models.DateTimeField(blank=True, null=True)
+    capacity = models.IntegerField(blank=True, null=True)
+    is_published = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = 'workshops'
+        db_table = 'events'
 
     def __str__(self):
         return self.title
@@ -162,7 +159,7 @@ class Guest(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
 
     class Meta:
-        db_table = 'guests'
+        db_table = 'event_speakers'
 
     def __str__(self):
         return self.name
@@ -186,7 +183,10 @@ class WebinarListing(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
 
     class Meta:
-        db_table = 'webinars'
+        db_table = 'event_registrations'
+        constraints = [
+            models.UniqueConstraint(fields=['event', 'email'], name='unique_event_email_registration')
+        ]
 
     def __str__(self):
         return self.title

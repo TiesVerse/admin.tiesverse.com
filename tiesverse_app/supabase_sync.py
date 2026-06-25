@@ -14,12 +14,13 @@ def get_client():
 
 
 TABLE_MAP = {
-    'Event':        'events',
-    'Article':      'articles',
-    'YouTubeVideo': 'youtube_videos',
-    'Workshop':     'workshops',
-    'TeamMember':   'team_members',
-    'Guest':        'guests',
+    'Event':           'events',
+    'Article':         'articles',
+    'YouTubeVideo':    'youtube_videos',
+    'Workshop':        'workshops',
+    'TeamMember':      'team_members',
+    'Guest':           'guests',
+    'WebinarListing':  'webinars',
 }
 
 

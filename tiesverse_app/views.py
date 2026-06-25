@@ -41,7 +41,7 @@ class EventViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
 
 
 class ArticleViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
-    queryset = Article.objects.filter(published=True).order_by('-created_at')
+    queryset = Article.objects.all().order_by('-created_at')
     serializer_class = ArticleSerializer
     permission_classes = [IsAuthenticated, StaffModelPermissions]
 
@@ -59,7 +59,7 @@ class WorkshopViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
 
 
 class TeamMemberViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
-    queryset = TeamMember.objects.all().order_by('display_order')
+    queryset = TeamMember.objects.all().order_by('created_at')
     serializer_class = TeamMemberSerializer
     permission_classes = [IsAuthenticated, StaffModelPermissions]
 
@@ -69,7 +69,7 @@ class GuestViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
     serializer_class = GuestSerializer
     permission_classes = [IsAuthenticated, StaffModelPermissions]
 
-class WebinarListingViewSet(viewsets.ModelViewSet):
-    queryset = WebinarListing.objects.all()
+class WebinarListingViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
+    queryset = WebinarListing.objects.all().order_by('-date')
     serializer_class = WebinarListingSerializer
     permission_classes = [IsAuthenticated, StaffModelPermissions]

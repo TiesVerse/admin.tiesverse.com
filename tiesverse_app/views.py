@@ -5,44 +5,70 @@ from .serializers import (
     DepartmentSerializer, TeamMemberSerializer, TeamMemberSocialSerializer,
     EventSerializer, EventSpeakerSerializer, EventRegistrationSerializer
 )
+from . import supabase_sync
 
 class StaffModelPermissions(DjangoModelPermissions):
     perms_map = {
-        'GET': ['%(app_label)s.view_%(model_name)s'],
-        'OPTIONS': [],
-        'HEAD': [],
-        'POST': ['%(app_label)s.add_%(model_name)s'],
-        'PUT': ['%(app_label)s.change_%(model_name)s'],
-        'PATCH': ['%(app_label)s.change_%(model_name)s'],
+        'GET':    ['%(app_label)s.view_%(model_name)s'],
+        'OPTIONS': [], 'HEAD': [],
+        'POST':   ['%(app_label)s.add_%(model_name)s'],
+        'PUT':    ['%(app_label)s.change_%(model_name)s'],
+        'PATCH':  ['%(app_label)s.change_%(model_name)s'],
         'DELETE': ['%(app_label)s.delete_%(model_name)s'],
     }
 
-class DepartmentViewSet(viewsets.ModelViewSet):
-    queryset = Department.objects.all()
-    serializer_class = DepartmentSerializer
-    permission_classes = [IsAuthenticated, StaffModelPermissions]
 
-class TeamMemberViewSet(viewsets.ModelViewSet):
-    queryset = TeamMember.objects.all()
-    serializer_class = TeamMemberSerializer
-    permission_classes = [IsAuthenticated, StaffModelPermissions]
+class SupabaseSyncMixin:
+    """After every write, mirror the change to Supabase."""
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        supabase_sync.upsert(instance)
 
-class TeamMemberSocialViewSet(viewsets.ModelViewSet):
-    queryset = TeamMemberSocial.objects.all()
-    serializer_class = TeamMemberSocialSerializer
-    permission_classes = [IsAuthenticated, StaffModelPermissions]
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        supabase_sync.upsert(instance)
 
-class EventViewSet(viewsets.ModelViewSet):
-    queryset = Event.objects.all()
+    def perform_destroy(self, instance):
+        supabase_sync.delete(instance)
+        instance.delete()
+
+
+class EventViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
+    queryset = Event.objects.all().order_by('date')
     serializer_class = EventSerializer
     permission_classes = [IsAuthenticated, StaffModelPermissions]
 
-class EventSpeakerViewSet(viewsets.ModelViewSet):
-    queryset = EventSpeaker.objects.all()
-    serializer_class = EventSpeakerSerializer
+
+class ArticleViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
+    queryset = Article.objects.all().order_by('-created_at')
+    serializer_class = ArticleSerializer
     permission_classes = [IsAuthenticated, StaffModelPermissions]
 
-class EventRegistrationViewSet(viewsets.ModelViewSet):
-    queryset = EventRegistration.objects.all()
-    serializer_class = EventRegistrationSerializer
+
+class YouTubeVideoViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
+    queryset = YouTubeVideo.objects.all().order_by('-created_at')
+    serializer_class = YouTubeVideoSerializer
+    permission_classes = [IsAuthenticated, StaffModelPermissions]
+
+
+class WorkshopViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
+    queryset = Workshop.objects.all().order_by('date')
+    serializer_class = WorkshopSerializer
+    permission_classes = [IsAuthenticated, StaffModelPermissions]
+
+
+class TeamMemberViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
+    queryset = TeamMember.objects.all().order_by('created_at')
+    serializer_class = TeamMemberSerializer
+    permission_classes = [IsAuthenticated, StaffModelPermissions]
+
+
+class GuestViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
+    queryset = Guest.objects.all().order_by('-created_at')
+    serializer_class = GuestSerializer
+    permission_classes = [IsAuthenticated, StaffModelPermissions]
+
+class WebinarListingViewSet(SupabaseSyncMixin, viewsets.ModelViewSet):
+    queryset = WebinarListing.objects.all().order_by('-date')
+    serializer_class = WebinarListingSerializer
     permission_classes = [IsAuthenticated, StaffModelPermissions]

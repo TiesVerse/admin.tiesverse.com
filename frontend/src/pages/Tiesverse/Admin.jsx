@@ -38,27 +38,39 @@ const FormField = ({ label, name, value, onChange, placeholder, required, type =
     </div>
 );
 
+// Surface the first DRF field validation error, e.g. {slug:["required"]} -> "slug: required"
+const firstValidationError = (res) => {
+    if (!res || typeof res !== 'object') return null;
+    const key = Object.keys(res).find(k => k !== 'id');
+    if (!key) return null;
+    const v = res[key];
+    return `${key}: ${Array.isArray(v) ? v[0] : v}`;
+};
+
 // ===== TAB CONFIGURATION =====
+// NOTE: field sets below mirror the Django models exactly (tiesverse_app.models).
+// Department -> Supabase 'articles', EventSpeaker -> 'guests',
+// EventRegistration -> 'workshops'. Keep form fields in sync with those models.
 const TAB_CONFIG = {
     departments: {
-        title: 'Departments', subtitle: 'Manage organization departments.', icon: <BookOpen size={20} />, itemLabel: 'Department',
+        title: 'Articles & Reports', subtitle: 'Newsroom and research content (Supabase: articles).', icon: <BookOpen size={20} />, itemLabel: 'Article',
         fetchFn: getDepartments, createFn: createDepartment, updateFn: updateDepartment, deleteFn: deleteDepartment,
-        imageField: 'cover_image_url', defaultForm: {},
+        imageField: 'cover_url', defaultForm: { kind: 'Article', featured: false, published: true },
     },
     team_members: {
         title: 'Team Members', subtitle: 'Manage the team directory and profiles.', icon: <Users size={20} />, itemLabel: 'Member',
         fetchFn: getTeamMembers, createFn: createTeamMember, updateFn: updateTeamMember, deleteFn: deleteTeamMember,
-        imageField: 'photo_url', defaultForm: { is_active: true },
+        imageField: 'photo_url', defaultForm: { is_founder: false, display_order: 0 },
     },
     event_speakers: {
-        title: 'Speakers', subtitle: 'Manage event speakers.', icon: <Users size={20} />, itemLabel: 'Speaker',
+        title: 'Speakers / Guests', subtitle: 'People who have joined Tiesverse events (Supabase: guests).', icon: <Users size={20} />, itemLabel: 'Speaker',
         fetchFn: getEventSpeakers, createFn: createEventSpeaker, updateFn: updateEventSpeaker, deleteFn: deleteEventSpeaker,
-        imageField: 'photo_url', defaultForm: {},
+        imageField: 'photo_url', defaultForm: { featured: false },
     },
     event_registrations: {
-        title: 'Registrations', subtitle: 'Manage event registrations.', icon: <FileText size={20} />, itemLabel: 'Registration',
+        title: 'Workshops', subtitle: 'Workshop / open-registration listings (Supabase: workshops).', icon: <FileText size={20} />, itemLabel: 'Workshop',
         fetchFn: getEventRegistrations, createFn: createEventRegistration, updateFn: updateEventRegistration, deleteFn: deleteEventRegistration,
-        imageField: null, defaultForm: { status: 'confirmed' },
+        imageField: 'cover_url', defaultForm: { status: 'upcoming' },
     },
 };
 
@@ -160,14 +172,17 @@ const Admin = ({ tab = 'articles' }) => {
         const { id, created_at, ...dataToSave } = formData;
 
         try {
-            if (editingId) {
-                const res = await config.updateFn(editingId, dataToSave);
-                if (res?.error) showNotice('Error: ' + res.error, 'error');
-                else { showNotice('Updated successfully!'); closeFormModal(); fetchData(); }
+            const res = editingId
+                ? await config.updateFn(editingId, dataToSave)
+                : await config.createFn(dataToSave);
+            // A successful save returns the object (with an `id`). DRF validation
+            // errors come back as field-keyed arrays with no `id` and no `error`.
+            if (res && res.id) {
+                showNotice(editingId ? 'Updated successfully!' : 'Published successfully!');
+                closeFormModal();
+                fetchData();
             } else {
-                const res = await config.createFn(dataToSave);
-                if (res?.error) showNotice('Error: ' + res.error, 'error');
-                else { showNotice('Published successfully!'); closeFormModal(); fetchData(); }
+                showNotice('Error: ' + (res?.error || firstValidationError(res) || 'Save failed'), 'error');
             }
         } catch (err) { showNotice('Error: ' + err.message, 'error'); }
         setLoading(false);
@@ -185,57 +200,89 @@ const Admin = ({ tab = 'articles' }) => {
     };
 
     // ===== RENDER FORM FIELDS PER TAB =====
+    // Fields mirror the Django models exactly. Required fields are marked.
     const renderFormFields = () => {
-        if (tab === 'departments') return (
+        if (tab === 'departments') return (   // Department model -> Supabase 'articles'
             <>
-                <FormField label="Department Name" name="name" value={formData.name} onChange={handleInputChange} placeholder="e.g. Defense" required />
+                <FormField label="Title *" name="title" value={formData.title} onChange={handleInputChange} placeholder="e.g. India's Semiconductor Push" required />
+                <FormField label="Slug *" name="slug" value={formData.slug} onChange={handleInputChange} placeholder="india-semiconductor-push (unique)" required />
+                <div><FieldLabel>Dek / Summary</FieldLabel><textarea name="dek" value={formData.dek || ''} onChange={handleInputChange} style={{ ...inputStyle, minHeight: '60px', resize: 'vertical' }} placeholder="One-line summary shown under the title." /></div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <FormField label="Category (cat)" name="cat" value={formData.cat} onChange={handleInputChange} placeholder="e.g. Geopolitics" />
+                    <FormField label="Topic" name="topic" value={formData.topic} onChange={handleInputChange} placeholder="e.g. Trade" />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <div>
+                        <FieldLabel>Kind</FieldLabel>
+                        <select name="kind" value={formData.kind || 'Article'} onChange={handleInputChange} style={selectStyle}>
+                            <option value="Article">Article</option>
+                            <option value="Report">Report</option>
+                            <option value="Brief">Brief</option>
+                            <option value="Analysis">Analysis</option>
+                        </select>
+                    </div>
+                    <FormField label="Read time" name="read_time" value={formData.read_time} onChange={handleInputChange} placeholder="e.g. 6 min read" />
+                </div>
+                <FormField label="Date" name="date" value={formData.date} onChange={handleInputChange} placeholder="e.g. Jun 24, 2026" />
+                <FormField label="Cover Image URL *" name="cover_url" value={formData.cover_url} onChange={handleInputChange} placeholder="https://…" required />
+                <div style={{ display: 'flex', gap: '24px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'rgba(255,255,255,0.7)', fontSize: '0.875rem' }}>
+                        <input type="checkbox" name="featured" checked={!!formData.featured} onChange={e => handleInputChange({ target: { name: 'featured', value: e.target.checked } })} /> Featured
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'rgba(255,255,255,0.7)', fontSize: '0.875rem' }}>
+                        <input type="checkbox" name="published" checked={formData.published !== false} onChange={e => handleInputChange({ target: { name: 'published', value: e.target.checked } })} /> Published
+                    </label>
+                </div>
             </>
         );
 
-        if (tab === 'team_members') return (
+        if (tab === 'team_members') return (   // TeamMember model
             <>
-                <FormField label="Full Name" name="name" value={formData.name} onChange={handleInputChange} placeholder="Jane Doe" required />
-                <FormField label="Role / Title" name="role" value={formData.role} onChange={handleInputChange} placeholder="e.g. Researcher" />
-                <FormField label="Bio" name="bio" value={formData.bio} onChange={handleInputChange} placeholder="Brief bio..." />
+                <FormField label="Full Name *" name="name" value={formData.name} onChange={handleInputChange} placeholder="Jane Doe" required />
+                <FormField label="Role / Title *" name="role" value={formData.role} onChange={handleInputChange} placeholder="e.g. Researcher" required />
+                <div><FieldLabel>Bio</FieldLabel><textarea name="bio" value={formData.bio || ''} onChange={handleInputChange} style={{ ...inputStyle, minHeight: '60px', resize: 'vertical' }} placeholder="Brief bio..." /></div>
                 <FormField label="Photo URL" name="photo_url" value={formData.photo_url} onChange={handleInputChange} placeholder="https://example.com/photo.jpg" />
-                <FormField label="Department ID" name="department_id" value={formData.department_id} onChange={handleInputChange} placeholder="ID of department" type="number" />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <FormField label="Department" name="department" value={formData.department} onChange={handleInputChange} placeholder="e.g. Research" />
+                    <FormField label="Display order" name="display_order" value={formData.display_order} onChange={handleInputChange} placeholder="0" type="number" />
+                </div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'rgba(255,255,255,0.7)', fontSize: '0.875rem' }}>
-                    <input type="checkbox" name="is_active" checked={formData.is_active !== false} onChange={e => handleInputChange({ target: { name: 'is_active', value: e.target.checked }})} /> Active
+                    <input type="checkbox" name="is_founder" checked={!!formData.is_founder} onChange={e => handleInputChange({ target: { name: 'is_founder', value: e.target.checked } })} /> Founder
                 </label>
             </>
         );
 
-        if (tab === 'event_speakers') return (
+        if (tab === 'event_speakers') return (   // EventSpeaker model -> Supabase 'guests'
             <>
-                <FormField label="Event ID" name="event_id" value={formData.event_id} onChange={handleInputChange} placeholder="ID of Event" type="number" required />
-                <FormField label="Speaker Name" name="name" value={formData.name} onChange={handleInputChange} placeholder="Full name" required />
-                <FormField label="Designation" name="designation" value={formData.designation} onChange={handleInputChange} placeholder="e.g. CEO" />
-                <FormField label="Organization" name="organization" value={formData.organization} onChange={handleInputChange} placeholder="e.g. Company" />
-                <div><FieldLabel>Bio</FieldLabel><textarea name="bio" value={formData.bio || ''} onChange={handleInputChange} style={{ ...inputStyle, minHeight: '60px', resize: 'vertical' }} placeholder="Brief bio..." /></div>
+                <FormField label="Speaker Name *" name="name" value={formData.name} onChange={handleInputChange} placeholder="Full name" required />
+                <FormField label="Role / Designation *" name="role" value={formData.role} onChange={handleInputChange} placeholder="e.g. CEO, Author, Diplomat" required />
+                <FormField label="Organization" name="org" value={formData.org} onChange={handleInputChange} placeholder="e.g. Ministry of External Affairs" />
+                <div><FieldLabel>Quote</FieldLabel><textarea name="quote" value={formData.quote || ''} onChange={handleInputChange} style={{ ...inputStyle, minHeight: '60px', resize: 'vertical' }} placeholder="A notable quote from this guest..." /></div>
                 <FormField label="Photo URL" name="photo_url" value={formData.photo_url} onChange={handleInputChange} placeholder="https://example.com/photo.jpg" />
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'rgba(255,255,255,0.7)', fontSize: '0.875rem' }}>
+                    <input type="checkbox" name="featured" checked={!!formData.featured} onChange={e => handleInputChange({ target: { name: 'featured', value: e.target.checked } })} /> Featured
+                </label>
             </>
         );
 
-        if (tab === 'event_registrations') return (
+        if (tab === 'event_registrations') return (   // EventRegistration model -> Supabase 'workshops'
             <>
-                <FormField label="Event ID" name="event_id" value={formData.event_id} onChange={handleInputChange} placeholder="ID of Event" type="number" required />
+                <FormField label="Workshop Title *" name="title" value={formData.title} onChange={handleInputChange} placeholder="e.g. Newsroom Masterclass" required />
+                <div><FieldLabel>Description</FieldLabel><textarea name="description" value={formData.description || ''} onChange={handleInputChange} style={{ ...inputStyle, minHeight: '60px', resize: 'vertical' }} placeholder="What the workshop covers..." /></div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <FormField label="First Name" name="first_name" value={formData.first_name} onChange={handleInputChange} required />
-                    <FormField label="Last Name" name="last_name" value={formData.last_name} onChange={handleInputChange} required />
+                    <FormField label="Date" name="date" value={formData.date} onChange={handleInputChange} placeholder="e.g. Jul 12, 2026" />
+                    <FormField label="Time / TZ" name="time_tz" value={formData.time_tz} onChange={handleInputChange} placeholder="e.g. 4:00 PM IST" />
                 </div>
-                <FormField label="Email" name="email" value={formData.email} onChange={handleInputChange} type="email" required />
-                <FormField label="Phone" name="phone" value={formData.phone} onChange={handleInputChange} />
-                <FormField label="Organization" name="organization" value={formData.organization} onChange={handleInputChange} />
+                <FormField label="Host" name="host" value={formData.host} onChange={handleInputChange} placeholder="e.g. Nimble" />
+                <FormField label="Cover Image URL" name="cover_url" value={formData.cover_url} onChange={handleInputChange} placeholder="https://…" />
+                <FormField label="Registration URL" name="register_url" value={formData.register_url} onChange={handleInputChange} placeholder="https://…" />
                 <div>
                     <FieldLabel>Status</FieldLabel>
-                    <select name="status" value={formData.status || 'confirmed'} onChange={handleInputChange} style={selectStyle}>
-                        <option value="confirmed">Confirmed</option>
-                        <option value="waitlisted">Waitlisted</option>
-                        <option value="cancelled">Cancelled</option>
-                        <option value="attended">Attended</option>
+                    <select name="status" value={formData.status || 'upcoming'} onChange={handleInputChange} style={selectStyle}>
+                        <option value="upcoming">Upcoming</option>
+                        <option value="past">Past</option>
                     </select>
                 </div>
-                <div><FieldLabel>Notes</FieldLabel><textarea name="notes" value={formData.notes || ''} onChange={handleInputChange} style={{ ...inputStyle, minHeight: '60px', resize: 'vertical' }} placeholder="Admin notes..." /></div>
             </>
         );
 
@@ -245,8 +292,8 @@ const Admin = ({ tab = 'articles' }) => {
     // ===== RENDER ITEM CARD =====
     const renderItemCard = (item) => {
         const thumb = config.imageField ? item[config.imageField] : null;
-        const title = item.name || (item.first_name ? `${item.first_name} ${item.last_name}` : '') || 'Untitled';
-        const subtitle = item.role || item.designation || item.status || '';
+        const title = item.title || item.name || 'Untitled';
+        const subtitle = item.role || item.cat || item.host || item.org || item.department || item.kind || '';
         const date = item.date || '';
 
         return (

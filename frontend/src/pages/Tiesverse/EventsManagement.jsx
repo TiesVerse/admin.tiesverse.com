@@ -78,12 +78,13 @@ const EventsManagement = () => {
       const res = editingId
         ? await updateEvent(editingId, payload)
         : await createEvent(payload);
-      if (res && !res.error && !res.date && !res.title) {
+      // A successful create/update returns the saved object (which has an `id`).
+      // DRF validation errors come back as field-keyed arrays with no `id`.
+      if (res && res.id) {
         showToast(editingId ? 'Event updated successfully!' : 'Event published successfully!');
         closeFormModal();
         fetchEvents();
       } else {
-        // DRF returns field-keyed validation errors (e.g. {date:["..."]})
         const msg = res?.error || firstValidationError(res) || 'Failed to save event';
         showToast(msg, 'error');
       }

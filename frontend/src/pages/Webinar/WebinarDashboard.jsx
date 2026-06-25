@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getWebinarEvents, getWebinarRegistrations } from '../../apiClient';
+import { getWebinarEvents, getWebinarRegistrations, createWebinarEvent } from '../../apiClient';
 import { Video, Users, CheckSquare, RefreshCw } from 'lucide-react';
 
 const WebinarDashboard = () => {

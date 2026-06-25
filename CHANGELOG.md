@@ -39,7 +39,21 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [Unreleased] (satyam) (07-06-26)
+## [0.2.0] - Cloudflare ATS Integration, Multi-DB Routing, & Comprehensive Architecture (25-06-26) (satyam)
+
+### Added
+
+* **Comprehensive End Report:** Created `docs/SATYAMS_END_REPORT.md` documenting high-level design, RBAC matrix grids, multi-database edge routing, Cloudflare ATS connectivity, and portal deep-dives.
+* **Serverless Cloudflare ATS:** Built direct HTTP API providers (`career_app/providers.py`) querying edge Cloudflare D1 SQL databases for candidate evaluations and streaming resume PDFs from Cloudflare R2 storage.
+* **Multi-Database Router (`config/routers.py`):** Configured automatic read/write separation between core RBAC/authentication (`default` / Supabase DB) and portal content streams (`turso_db` / Turso DB).
+* **Client-Side PDF Exports:** Integrated `jspdf` and `jspdf-autotable` into the Career portal for instant formatted candidate and enrollment roster exports.
+* **Form Gate Locking:** Added remote locking guards allowing administrators to toggle application visibility queues dynamically.
+* **Automated Data Seeding:** Developed `seed_data.py` for one-click sample data population across departments, events, keynote speakers, and registrations.
+
+---
+
+## [0.1.5] - Complete UI Redesign & Dynamic Theme Engine (07-06-26) (satyam)
+
 
 ### Added
 

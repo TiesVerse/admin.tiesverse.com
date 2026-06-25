@@ -14,13 +14,19 @@ def get_client():
 
 
 TABLE_MAP = {
-    'Event':           'events',
-    'Article':         'articles',
-    'YouTubeVideo':    'youtube_videos',
-    'Workshop':        'workshops',
-    'TeamMember':      'team_members',
-    'Guest':           'guests',
-    'WebinarListing':  'webinars',
+    # New model names (Satyam's schema)
+    'Department':          'articles',       # articles table in Supabase
+    'Event':               'events',
+    'EventSpeaker':        'guests',
+    'EventRegistration':   'workshops',
+    'TeamMember':          'team_members',
+    'TeamMemberSocial':    'youtube_videos',
+    'WebinarListing':      'webinars',
+    # Old aliases (kept for safety)
+    'Article':             'articles',
+    'Guest':               'guests',
+    'Workshop':            'workshops',
+    'YouTubeVideo':        'youtube_videos',
 }
 
 

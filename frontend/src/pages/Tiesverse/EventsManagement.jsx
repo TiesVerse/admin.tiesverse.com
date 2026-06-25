@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  getEvents, createEvent, updateEvent, deleteEvent 
+import {
+  getEvents, createEvent, updateEvent, deleteEvent
 } from '../../apiClient';
-import { Plus, Edit2, Trash2, CheckCircle, XCircle, Clock, MapPin, Calendar, Sparkles, X, ExternalLink, Users } from 'lucide-react';
+import { Plus, Edit2, Trash2, CheckCircle, XCircle, MapPin, Calendar, Sparkles, X, Users, Tag, IndianRupee } from 'lucide-react';
+
+// Mirrors the Django Event model (tiesverse_app.models.Event).
+const EMPTY_EVENT = {
+  title: '', category: '', city: '', venue: '', date: '', time: '', host: '',
+  price: '', orig_price: '', capacity: '', cover_url: '', register_url: '',
+  note: '', flagship: false, past: false,
+};
 
 const EventsManagement = () => {
   const [events, setEvents] = useState([]);
-  const [formData, setFormData] = useState({
-    title: '', description: '', event_type: 'online', status: 'upcoming',
-    start_datetime: '', end_datetime: '', venue_name: '', venue_address: '', meeting_link: '',
-    capacity: '', registration_deadline: '', cover_image_url: '', is_published: false
-  });
+  const [formData, setFormData] = useState({ ...EMPTY_EVENT });
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState({ message: '', type: '' });
@@ -23,7 +26,8 @@ const EventsManagement = () => {
     setLoading(true);
     try {
       const res = await getEvents();
-      if (res && !res.error) setEvents(res);
+      if (Array.isArray(res)) setEvents(res);
+      else if (res && !res.error) setEvents(res.results || []);
       else showToast(res?.error || 'Failed to load events', 'error');
     } catch { showToast('Error fetching events', 'error'); }
     setLoading(false);
@@ -39,42 +43,77 @@ const EventsManagement = () => {
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
   };
 
+  // Build a payload that matches the serializer's field types.
+  const buildPayload = () => {
+    const p = {
+      title: formData.title.trim(),
+      category: formData.category.trim(),
+      city: formData.city.trim(),
+      venue: formData.venue.trim(),
+      date: formData.date.trim(),
+      time: formData.time.trim(),
+      host: formData.host.trim(),
+      price: Number(formData.price) || 0,
+      cover_url: formData.cover_url.trim(),
+      register_url: formData.register_url.trim(),
+      note: formData.note.trim(),
+      flagship: !!formData.flagship,
+      past: !!formData.past,
+    };
+    // Optional nullable integers — only send when provided.
+    p.orig_price = formData.orig_price === '' ? null : Number(formData.orig_price);
+    p.capacity = formData.capacity === '' ? null : Number(formData.capacity);
+    return p;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.title.trim() || !formData.date.trim()) {
+      showToast('Title and Date are required.', 'error');
+      return;
+    }
     setLoading(true);
     try {
-      if (editingId) {
-        const res = await updateEvent(editingId, formData);
-        if (res && !res.error) { showToast('Event updated successfully!'); closeFormModal(); fetchEvents(); }
-        else showToast(res?.error || 'Failed to update event', 'error');
+      const payload = buildPayload();
+      const res = editingId
+        ? await updateEvent(editingId, payload)
+        : await createEvent(payload);
+      if (res && !res.error && !res.date && !res.title) {
+        showToast(editingId ? 'Event updated successfully!' : 'Event published successfully!');
+        closeFormModal();
+        fetchEvents();
       } else {
-        const res = await createEvent(formData);
-        if (res && !res.error) { showToast('Event published successfully!'); closeFormModal(); fetchEvents(); }
-        else showToast(res?.error || 'Failed to create event', 'error');
+        // DRF returns field-keyed validation errors (e.g. {date:["..."]})
+        const msg = res?.error || firstValidationError(res) || 'Failed to save event';
+        showToast(msg, 'error');
       }
     } catch { showToast('Error saving event details', 'error'); }
     setLoading(false);
   };
 
+  const firstValidationError = (res) => {
+    if (!res || typeof res !== 'object') return null;
+    const key = Object.keys(res)[0];
+    if (!key) return null;
+    const val = res[key];
+    return `${key}: ${Array.isArray(val) ? val[0] : val}`;
+  };
+
   const openCreateModal = () => {
     setEditingId(null);
-    setFormData({
-      title: '', description: '', event_type: 'online', status: 'upcoming',
-      start_datetime: '', end_datetime: '', venue_name: '', venue_address: '', meeting_link: '',
-      capacity: '', registration_deadline: '', cover_image_url: '', is_published: false
-    });
+    setFormData({ ...EMPTY_EVENT });
     setFormModalOpen(true);
   };
 
   const openEditModal = (event) => {
     setEditingId(event.id);
     setFormData({
-      title: event.title || '', description: event.description || '',
-      event_type: event.event_type || 'online', status: event.status || 'upcoming',
-      start_datetime: event.start_datetime || '', end_datetime: event.end_datetime || '',
-      venue_name: event.venue_name || '', venue_address: event.venue_address || '', meeting_link: event.meeting_link || '',
-      capacity: event.capacity || '', registration_deadline: event.registration_deadline || '',
-      cover_image_url: event.cover_image_url || '', is_published: event.is_published || false
+      title: event.title || '', category: event.category || '', city: event.city || '',
+      venue: event.venue || '', date: event.date || '', time: event.time || '',
+      host: event.host || '', price: event.price ?? '', orig_price: event.orig_price ?? '',
+      capacity: event.capacity ?? '', cover_url: event.cover_url || '',
+      register_url: event.register_url || '', note: event.note || '',
+      flagship: !!event.flagship, past: !!event.past,
     });
     setFormModalOpen(true);
   };
@@ -82,11 +121,7 @@ const EventsManagement = () => {
   const closeFormModal = () => {
     setFormModalOpen(false);
     setEditingId(null);
-    setFormData({
-      title: '', description: '', event_type: 'online', status: 'upcoming',
-      start_datetime: '', end_datetime: '', venue_name: '', venue_address: '', meeting_link: '',
-      capacity: '', registration_deadline: '', cover_image_url: '', is_published: false
-    });
+    setFormData({ ...EMPTY_EVENT });
   };
 
   const confirmDelete = async () => {
@@ -101,14 +136,6 @@ const EventsManagement = () => {
     setLoading(false);
   };
 
-  const getStatusStyle = (status) => {
-    if (status === 'upcoming') return { bg: 'rgba(59,130,246,0.1)', color: '#3B82F6', border: 'rgba(59,130,246,0.2)' };
-    if (status === 'ongoing') return { bg: 'rgba(16,185,129,0.1)', color: '#10B981', border: 'rgba(16,185,129,0.2)' };
-    if (status === 'completed') return { bg: 'rgba(107,114,128,0.1)', color: '#6B7280', border: 'rgba(107,114,128,0.2)' };
-    if (status === 'cancelled') return { bg: 'rgba(239,68,68,0.1)', color: '#EF4444', border: 'rgba(239,68,68,0.2)' };
-    return { bg: 'rgba(107,114,128,0.1)', color: '#6B7280', border: 'rgba(107,114,128,0.2)' };
-  };
-
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
       {/* Header */}
@@ -118,7 +145,7 @@ const EventsManagement = () => {
             Events Management
           </h1>
           <p style={{ fontSize: '0.875rem', color: 'rgba(255,255,255,0.4)', marginTop: '6px' }}>
-            Create, update, and manage global Tiesverse events and webinars.
+            Create, update, and manage on-ground Tiesverse events.
           </p>
         </div>
         <button
@@ -131,8 +158,8 @@ const EventsManagement = () => {
             boxShadow: '0 8px 20px color-mix(in srgb, var(--primary) 30%, transparent)',
             transition: 'all 0.3s ease',
           }}
-          onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 12px 28px color-mix(in srgb, var(--primary) 40%, transparent)'; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 8px 20px color-mix(in srgb, var(--primary) 30%, transparent)'; }}
+          onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; }}
         >
           <Plus size={18} /> Add New Event
         </button>
@@ -151,7 +178,7 @@ const EventsManagement = () => {
         </div>
       )}
 
-      {/* Events Grid — Full Width */}
+      {/* Events Grid */}
       {loading && events.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '80px 0', color: 'rgba(255,255,255,0.3)' }}>
           <div style={{ fontSize: '0.875rem', fontWeight: 600, letterSpacing: '0.1em' }}>LOADING EVENTS...</div>
@@ -172,149 +199,141 @@ const EventsManagement = () => {
           gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
           gap: '20px',
         }}>
-          {events.map(event => {
-            const statusStyle = getStatusStyle(event.status);
-            return (
-              <div
-                key={event.id}
-                style={{
-                  background: 'rgba(20,20,20,0.6)',
-                  backdropFilter: 'blur(20px)',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                  borderRadius: '16px',
-                  padding: '24px',
-                  display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                  cursor: 'default',
-                  minHeight: '220px',
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--primary) 25%, transparent)';
-                  e.currentTarget.style.transform = 'translateY(-4px)';
-                  e.currentTarget.style.boxShadow = '0 16px 32px rgba(0,0,0,0.4), 0 0 20px color-mix(in srgb, var(--primary) 8%, transparent)';
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
-              >
-                {/* Top Section */}
-                <div>
-                  {/* Badges Row */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '14px' }}>
+          {events.map(event => (
+            <div
+              key={event.id}
+              style={{
+                background: 'rgba(20,20,20,0.6)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: '16px',
+                padding: '24px',
+                display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                minHeight: '220px',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--primary) 25%, transparent)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
+            >
+              <div>
+                {/* Badges Row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '14px' }}>
+                  <span style={{
+                    fontSize: '0.625rem', fontWeight: 800, letterSpacing: '0.1em',
+                    padding: '4px 10px', borderRadius: '6px',
+                    background: 'color-mix(in srgb, var(--primary) 10%, transparent)', color: 'var(--primary)',
+                    border: '1px solid color-mix(in srgb, var(--primary) 15%, transparent)',
+                    textTransform: 'uppercase',
+                  }}>
+                    {event.category || 'EVENT'}
+                  </span>
+                  {event.flagship && (
                     <span style={{
-                      fontSize: '0.625rem', fontWeight: 800, letterSpacing: '0.1em',
+                      fontSize: '0.625rem', fontWeight: 800, letterSpacing: '0.08em',
                       padding: '4px 10px', borderRadius: '6px',
-                      background: 'color-mix(in srgb, var(--primary) 10%, transparent)', color: 'var(--primary)',
-                      border: '1px solid color-mix(in srgb, var(--primary) 15%, transparent)',
+                      background: 'rgba(245,158,11,0.12)', color: '#F59E0B',
+                      border: '1px solid rgba(245,158,11,0.2)',
                     }}>
-                      {event.event_type || 'EVENT'}
+                      ⭐ FLAGSHIP
                     </span>
-                    {event.is_featured && (
-                      <span style={{
-                        fontSize: '0.625rem', fontWeight: 800, letterSpacing: '0.08em',
-                        padding: '4px 10px', borderRadius: '6px',
-                        background: 'rgba(245,158,11,0.12)', color: '#F59E0B',
-                        border: '1px solid rgba(245,158,11,0.2)',
-                      }}>
-                        ⭐ FEATURED
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Title */}
-                  <h3 style={{
-                    fontSize: '1.0625rem', fontWeight: 700, color: '#fff',
-                    lineHeight: 1.4, marginBottom: '8px',
-                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-                  }}>
-                    {event.title}
-                  </h3>
-
-                  {/* Description */}
-                  <p style={{
-                    fontSize: '0.8125rem', color: 'rgba(255,255,255,0.35)', lineHeight: 1.5,
-                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-                    marginBottom: '16px',
-                  }}>
-                    {event.description || 'No description provided.'}
-                  </p>
+                  )}
                 </div>
 
-                {/* Bottom Section */}
-                <div>
-                  {/* Metadata */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
-                    {event.start_datetime && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
-                        <Calendar size={13} /> {new Date(event.start_datetime).toLocaleDateString()}
-                      </div>
-                    )}
-                    {event.venue_name && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
-                        <MapPin size={13} /> {event.venue_name}
-                      </div>
-                    )}
-                    {event.capacity && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
-                        <Users size={13} /> Capacity: {event.capacity}
-                      </div>
-                    )}
-                  </div>
+                {/* Title */}
+                <h3 style={{
+                  fontSize: '1.0625rem', fontWeight: 700, color: '#fff',
+                  lineHeight: 1.4, marginBottom: '8px',
+                  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                }}>
+                  {event.title}
+                </h3>
 
-                  {/* Status + Actions Bar */}
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)',
-                  }}>
+                {/* Note / blurb */}
+                <p style={{
+                  fontSize: '0.8125rem', color: 'rgba(255,255,255,0.35)', lineHeight: 1.5,
+                  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                  marginBottom: '16px',
+                }}>
+                  {event.note || 'No description provided.'}
+                </p>
+              </div>
+
+              <div>
+                {/* Metadata */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+                  {event.date && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+                      <Calendar size={13} /> {event.date}{event.time ? ` · ${event.time}` : ''}
+                    </div>
+                  )}
+                  {(event.venue || event.city) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+                      <MapPin size={13} /> {[event.venue, event.city].filter(Boolean).join(', ')}
+                    </div>
+                  )}
+                  {event.capacity && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
+                      <Users size={13} /> Cap: {event.capacity}
+                    </div>
+                  )}
+                </div>
+
+                {/* Status + Actions Bar */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{
                       fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.04em',
                       padding: '5px 12px', borderRadius: '8px',
-                      background: statusStyle.bg, color: statusStyle.color,
-                      border: `1px solid ${statusStyle.border}`,
+                      background: event.past ? 'rgba(107,114,128,0.1)' : 'rgba(16,185,129,0.1)',
+                      color: event.past ? '#6B7280' : '#10B981',
+                      border: `1px solid ${event.past ? 'rgba(107,114,128,0.2)' : 'rgba(16,185,129,0.2)'}`,
                       display: 'flex', alignItems: 'center', gap: '5px',
                     }}>
-                      {event.is_published === true ? <CheckCircle size={12} /> : <XCircle size={12} />}
-                      {event.status || 'upcoming'}
+                      {event.past ? <XCircle size={12} /> : <CheckCircle size={12} />}
+                      {event.past ? 'Past' : 'Upcoming'}
                     </span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>
+                      {Number(event.price) > 0 ? `₹${event.price}` : 'Free'}
+                    </span>
+                  </div>
 
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      
-                      <button
-                        onClick={() => openEditModal(event)}
-                        style={{
-                          padding: '8px', borderRadius: '8px',
-                          background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-                          color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                          transition: 'all 0.2s',
-                        }}
-                        title="Edit"
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,107,0,0.3)'; e.currentTarget.style.color = '#FF6B00'; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
-                      >
-                        <Edit2 size={14} />
-                      </button>
-                      <button
-                        onClick={() => setDeleteModal({ open: true, id: event.id, title: event.title })}
-                        style={{
-                          padding: '8px', borderRadius: '8px',
-                          background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.12)',
-                          color: 'rgba(239,68,68,0.5)', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                          transition: 'all 0.2s',
-                        }}
-                        title="Delete"
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(239,68,68,0.4)'; e.currentTarget.style.color = '#EF4444'; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(239,68,68,0.12)'; e.currentTarget.style.color = 'rgba(239,68,68,0.5)'; }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => openEditModal(event)}
+                      style={{
+                        padding: '8px', borderRadius: '8px',
+                        background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                        color: 'rgba(255,255,255,0.4)', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                      }}
+                      title="Edit"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                    <button
+                      onClick={() => setDeleteModal({ open: true, id: event.id, title: event.title })}
+                      style={{
+                        padding: '8px', borderRadius: '8px',
+                        background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.12)',
+                        color: 'rgba(239,68,68,0.5)', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                      }}
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
 
@@ -352,10 +371,7 @@ const EventsManagement = () => {
                   background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
                   borderRadius: '10px', padding: '8px', color: 'rgba(255,255,255,0.4)',
                   cursor: 'pointer', display: 'flex',
-                  transition: 'all 0.2s',
                 }}
-                onMouseEnter={e => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
-                onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
               >
                 <X size={18} />
               </button>
@@ -363,60 +379,53 @@ const EventsManagement = () => {
 
             {/* Form */}
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <FormField label="Event Title" name="title" value={formData.title} onChange={handleChange} required />
+              <FormField label="Event Title *" name="title" value={formData.title} onChange={handleChange} placeholder="Geopolitics Live: The Delhi Salon" required />
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div>
-                  <FieldLabel>Status</FieldLabel>
-                  <select name="status" value={formData.status} onChange={handleChange} style={selectStyle}>
-                    <option value="upcoming">Upcoming</option>
-                    <option value="ongoing">Ongoing</option>
-                    <option value="completed">Completed</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
-                </div>
-                <div>
-                  <FieldLabel>Type</FieldLabel>
-                  <select name="event_type" value={formData.event_type} onChange={handleChange} style={selectStyle}>
-                    <option value="online">Online</option>
-                    <option value="offline">Offline</option>
-                  </select>
-                </div>
+                <FormField label="Date *" name="date" value={formData.date} onChange={handleChange} placeholder="Jul 05, 2026" required />
+                <FormField label="Time" name="time" value={formData.time} onChange={handleChange} placeholder="6:30 PM" />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <FormField label="Start Date/Time" name="start_datetime" type="datetime-local" value={formData.start_datetime ? formData.start_datetime.slice(0, 16) : ''} onChange={handleChange} required />
-                <FormField label="End Date/Time" name="end_datetime" type="datetime-local" value={formData.end_datetime ? formData.end_datetime.slice(0, 16) : ''} onChange={handleChange} />
+                <FormField label="Category" name="category" value={formData.category} onChange={handleChange} placeholder="Summit / Salon / Meetup" />
+                <FormField label="Host" name="host" value={formData.host} onChange={handleChange} placeholder="Foreign Policy India" />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <FormField label="Venue Name" name="venue_name" value={formData.venue_name} onChange={handleChange} />
-                <FormField label="Capacity" name="capacity" type="number" value={formData.capacity} onChange={handleChange} />
+                <FormField label="City" name="city" value={formData.city} onChange={handleChange} placeholder="New Delhi" />
+                <FormField label="Venue" name="venue" value={formData.venue} onChange={handleChange} placeholder="India Habitat Centre" />
               </div>
-              
-              <FormField label="Venue Address" name="venue_address" value={formData.venue_address} onChange={handleChange} />
-              <FormField label="Meeting Link" name="meeting_link" value={formData.meeting_link} onChange={handleChange} />
-              <FormField label="Registration Deadline" name="registration_deadline" type="datetime-local" value={formData.registration_deadline ? formData.registration_deadline.slice(0, 16) : ''} onChange={handleChange} />
-              <FormField label="Cover Image URL" name="cover_image_url" value={formData.cover_image_url} onChange={handleChange} />
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                <FormField label="Price (₹)" name="price" type="number" value={formData.price} onChange={handleChange} placeholder="0" />
+                <FormField label="Orig. Price (₹)" name="orig_price" type="number" value={formData.orig_price} onChange={handleChange} placeholder="optional" />
+                <FormField label="Capacity" name="capacity" type="number" value={formData.capacity} onChange={handleChange} placeholder="optional" />
+              </div>
+
+              <FormField label="Cover Image URL" name="cover_url" value={formData.cover_url} onChange={handleChange} placeholder="https://…" />
+              <FormField label="Registration URL" name="register_url" value={formData.register_url} onChange={handleChange} placeholder="https://…" />
 
               <div>
-                <FieldLabel>Description</FieldLabel>
+                <FieldLabel>Description / Note</FieldLabel>
                 <textarea
-                  name="description" value={formData.description} onChange={handleChange}
-                  style={{ ...inputStyle, minHeight: '100px', resize: 'vertical' }}
+                  name="note" value={formData.note} onChange={handleChange}
+                  placeholder="Short blurb shown on the event card."
+                  style={{ ...inputStyle, minHeight: '90px', resize: 'vertical' }}
                 />
               </div>
 
-              <label style={{
-                display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer',
-                fontSize: '0.875rem', fontWeight: 600, color: 'rgba(255,255,255,0.6)',
-              }}>
-                <input
-                  type="checkbox" name="is_published" checked={formData.is_published} onChange={handleChange}
-                  style={{ width: '18px', height: '18px', accentColor: 'var(--primary)' }}
-                />
-                Is Published
-              </label>
+              <div style={{ display: 'flex', gap: '24px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600, color: 'rgba(255,255,255,0.6)' }}>
+                  <input type="checkbox" name="flagship" checked={formData.flagship} onChange={handleChange}
+                    style={{ width: '18px', height: '18px', accentColor: 'var(--primary)' }} />
+                  Flagship event
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600, color: 'rgba(255,255,255,0.6)' }}>
+                  <input type="checkbox" name="past" checked={formData.past} onChange={handleChange}
+                    style={{ width: '18px', height: '18px', accentColor: 'var(--primary)' }} />
+                  Past event
+                </label>
+              </div>
 
               <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
                 <button
@@ -425,7 +434,7 @@ const EventsManagement = () => {
                     flex: 1, padding: '14px', borderRadius: '12px',
                     background: 'transparent', border: '1px solid rgba(255,255,255,0.1)',
                     color: 'rgba(255,255,255,0.5)', fontSize: '0.875rem', fontWeight: 700,
-                    cursor: 'pointer', transition: 'all 0.2s',
+                    cursor: 'pointer',
                   }}
                 >
                   Cancel
@@ -438,7 +447,7 @@ const EventsManagement = () => {
                     color: '#fff', border: 'none', fontSize: '0.875rem', fontWeight: 800,
                     cursor: loading ? 'not-allowed' : 'pointer', letterSpacing: '0.03em',
                     boxShadow: '0 8px 20px color-mix(in srgb, var(--primary) 30%, transparent)',
-                    transition: 'all 0.3s ease', opacity: loading ? 0.7 : 1,
+                    opacity: loading ? 0.7 : 1,
                   }}
                 >
                   {loading ? 'Saving...' : editingId ? 'Update Event' : 'Publish Event'}
@@ -526,10 +535,6 @@ const inputStyle = {
   transition: 'all 0.2s', outline: 'none', boxSizing: 'border-box',
 };
 
-const selectStyle = {
-  ...inputStyle, cursor: 'pointer', appearance: 'auto',
-};
-
 const FieldLabel = ({ children }) => (
   <label style={{
     display: 'block', fontSize: '0.6875rem', fontWeight: 800,
@@ -544,7 +549,7 @@ const FormField = ({ label, name, value, onChange, placeholder, required, type =
   <div>
     <FieldLabel>{label}</FieldLabel>
     <input
-      type={type} name={name} value={value || ''} onChange={onChange}
+      type={type} name={name} value={value ?? ''} onChange={onChange}
       placeholder={placeholder} required={required}
       style={inputStyle}
       onFocus={e => { e.target.style.borderColor = 'color-mix(in srgb, var(--primary) 40%, transparent)'; e.target.style.background = 'rgba(255,255,255,0.06)'; }}

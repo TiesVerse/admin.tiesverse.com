@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import { jwtDecode } from 'jwt-decode';
 import axios from 'axios';
+import { setApiToken } from '../apiClient';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -71,6 +72,7 @@ export const AuthProvider = ({ children }) => {
       });
       if (response.status === 200) {
         setAuthTokens(response.data);
+        setApiToken(response.data.access);
         const decoded = jwtDecode(response.data.access);
         setUser(decoded);
         return { success: true };
@@ -82,6 +84,7 @@ export const AuthProvider = ({ children }) => {
 
   const logoutUser = () => {
     setAuthTokens(null);
+    setApiToken(null);
     setUser(null);
     setProfile(null);
     

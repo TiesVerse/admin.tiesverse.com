@@ -1,16 +1,10 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
-const getToken = () => {
-    const authTokens = localStorage.getItem('authTokens');
-    if (authTokens) {
-        try {
-            return JSON.parse(authTokens).access;
-        } catch (e) {
-            return null;
-        }
-    }
-    return null;
-};
+// In-memory token store — set by AuthContext on login/logout.
+// Never persisted to localStorage so the session ends on page refresh.
+let _accessToken = null;
+export const setApiToken = (token) => { _accessToken = token; };
+const getToken = () => _accessToken;
 
 const publicFetch = async (path) => {
     // Django viewsets usually require a trailing slash
@@ -33,7 +27,7 @@ const adminFetch = async (path, method = 'GET', body = null) => {
     const res = await fetch(`${API_URL}${fetchPath}`, options);
 
     if (res.status === 401) {
-        localStorage.removeItem('authTokens');
+        setApiToken(null);
         window.location.href = '/login';
         return { error: 'Session expired. Please log in again.' };
     }
@@ -59,7 +53,7 @@ export const uploadImage = async (file) => {
         body: form,
     });
     if (res.status === 401) {
-        localStorage.removeItem('authTokens');
+        setApiToken(null);
         window.location.href = '/login';
         return { error: 'Session expired. Please log in again.' };
     }

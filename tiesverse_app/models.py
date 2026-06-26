@@ -1,6 +1,5 @@
 from django.db import models
 
-
 # ── Article (stored as 'departments' table in migration) ──────────────────────
 class Department(models.Model):
     slug = models.SlugField(max_length=255, unique=True)
@@ -26,49 +25,16 @@ class Department(models.Model):
     def __str__(self):
         return self.title
 
-    def to_supabase_dict(self):
-        return {
-            'slug':      self.slug,
-            'title':     self.title,
-            'dek':       self.dek,
-            'cat':       self.cat,
-            'topic':     self.topic,
-            'kind':      self.kind,
-            'date':      self.date,
-            'read_time': self.read_time,
-            'cover_url': self.cover_url,
-            'featured':  self.featured,
-            'published': self.published,
-        }
-
-
-# Keep 'Article' as an alias so existing views/serializers don't break
-Article = Department
-
-
-# ── Event ─────────────────────────────────────────────────────────────────────
-class Event(models.Model):
-    title = models.CharField(max_length=255)
-    category = models.CharField(
-        max_length=50, blank=True,
-        choices=[('Summit', 'Summit'), ('Salon', 'Salon'), ('Meetup', 'Meetup'),
-                 ('Workshop', 'Workshop'), ('Roundtable', 'Roundtable'), ('Other', 'Other')],
-    )
-    city = models.CharField(max_length=100, blank=True)
-    venue = models.CharField(max_length=255, blank=True)
-    date = models.CharField(max_length=50)
-    time = models.CharField(max_length=50, blank=True)
-    host = models.CharField(max_length=255, blank=True)
-    price = models.IntegerField(default=0)
-    orig_price = models.IntegerField(blank=True, null=True)
-    capacity = models.IntegerField(blank=True, null=True)
-    attended = models.CharField(max_length=100, blank=True)
-    note = models.TextField(blank=True)
-    flagship = models.BooleanField(default=False)
-    past = models.BooleanField(default=False)
-    cover_url = models.URLField(blank=True)
-    register_url = models.URLField(blank=True)
+class TeamMember(models.Model):
+    name = models.CharField(max_length=150)
+    role = models.CharField(max_length=150)
+    department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, blank=True)
+    bio = models.TextField(blank=True, null=True)
+    photo_url = models.CharField(max_length=500, blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    display_order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'events'
@@ -76,36 +42,10 @@ class Event(models.Model):
     def __str__(self):
         return self.title
 
-    def to_supabase_dict(self):
-        return {
-            'title':        self.title,
-            'category':     self.category,
-            'city':         self.city,
-            'venue':        self.venue,
-            'date':         self.date,
-            'time':         self.time,
-            'host':         self.host,
-            'price':        self.price,
-            'orig_price':   self.orig_price,
-            'capacity':     self.capacity,
-            'attended':     self.attended,
-            'note':         self.note,
-            'flagship':     self.flagship,
-            'past':         self.past,
-            'cover_url':    self.cover_url,
-            'register_url': self.register_url,
-        }
-
-
-# ── EventSpeaker (guests / past speakers) ─────────────────────────────────────
-class EventSpeaker(models.Model):
-    name = models.CharField(max_length=255)
-    role = models.CharField(max_length=255)
-    org = models.CharField(max_length=255, blank=True)
-    photo_url = models.URLField(blank=True)
-    quote = models.TextField(blank=True)
-    featured = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
+class TeamMemberSocial(models.Model):
+    team_member = models.ForeignKey(TeamMember, on_delete=models.CASCADE)
+    platform = models.CharField(max_length=50)
+    url = models.CharField(max_length=500)
 
     class Meta:
         db_table = 'event_speakers'
@@ -113,30 +53,31 @@ class EventSpeaker(models.Model):
     def __str__(self):
         return self.name
 
-    def to_supabase_dict(self):
-        return {
-            'name':      self.name,
-            'role':      self.role,
-            'org':       self.org,
-            'photo_url': self.photo_url,
-            'quote':     self.quote,
-            'featured':  self.featured,
-        }
-
-
-# Keep 'Guest' as alias
-Guest = EventSpeaker
-
-
-# ── TeamMember ────────────────────────────────────────────────────────────────
-class TeamMember(models.Model):
-    name = models.CharField(max_length=255)
-    role = models.CharField(max_length=255)
-    bio = models.TextField(blank=True)
-    photo_url = models.URLField(blank=True)
-    department = models.CharField(max_length=100, blank=True)
-    is_founder = models.BooleanField(default=False)
-    display_order = models.IntegerField(default=0)
+class Event(models.Model):
+    EVENT_TYPE_CHOICES = [
+        ('online', 'online'),
+        ('offline', 'offline'),
+    ]
+    STATUS_CHOICES = [
+        ('upcoming', 'upcoming'),
+        ('ongoing', 'ongoing'),
+        ('completed', 'completed'),
+        ('cancelled', 'cancelled'),
+    ]
+    
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    event_type = models.CharField(max_length=20, choices=EVENT_TYPE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='upcoming')
+    cover_image_url = models.CharField(max_length=500, blank=True, null=True)
+    venue_name = models.CharField(max_length=255, blank=True, null=True)
+    venue_address = models.TextField(blank=True, null=True)
+    meeting_link = models.CharField(max_length=500, blank=True, null=True)
+    start_datetime = models.DateTimeField()
+    end_datetime = models.DateTimeField(blank=True, null=True)
+    registration_deadline = models.DateTimeField(blank=True, null=True)
+    capacity = models.IntegerField(blank=True, null=True)
+    is_published = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -145,64 +86,14 @@ class TeamMember(models.Model):
     def __str__(self):
         return self.name
 
-    def to_supabase_dict(self):
-        return {
-            'name':          self.name,
-            'role':          self.role,
-            'bio':           self.bio,
-            'photo_url':     self.photo_url,
-            'department':    self.department,
-            'is_founder':    self.is_founder,
-            'display_order': self.display_order,
-        }
-
-
-# ── EventRegistration (workshops / online sessions) ───────────────────────────
-class EventRegistration(models.Model):
-    title = models.CharField(max_length=255)
-    description = models.TextField(blank=True)
-    date = models.CharField(max_length=50, blank=True)
-    time_tz = models.CharField(max_length=50, blank=True)
-    host = models.CharField(max_length=255, blank=True)
-    cover_url = models.URLField(blank=True)
-    register_url = models.URLField(blank=True)
-    status = models.CharField(
-        max_length=10,
-        choices=[('upcoming', 'Upcoming'), ('past', 'Past')],
-        default='upcoming',
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = 'event_registrations'
-
-    def __str__(self):
-        return self.title
-
-    def to_supabase_dict(self):
-        return {
-            'title':        self.title,
-            'description':  self.description,
-            'date':         self.date,
-            'time_tz':      self.time_tz,
-            'host':         self.host,
-            'cover_url':    self.cover_url,
-            'register_url': self.register_url,
-            'status':       self.status,
-        }
-
-
-# Keep 'Workshop' as alias
-Workshop = EventRegistration
-
-
-# ── TeamMemberSocial (YouTube videos) ─────────────────────────────────────────
-class TeamMemberSocial(models.Model):
-    title = models.CharField(max_length=255)
-    video_id = models.CharField(max_length=20)
-    thumbnail_url = models.URLField(blank=True)
-    published_at = models.CharField(max_length=50, blank=True)
-    category = models.CharField(max_length=100, blank=True)
+class EventSpeaker(models.Model):
+    event = models.ForeignKey(Event, on_delete=models.CASCADE)
+    name = models.CharField(max_length=150)
+    designation = models.CharField(max_length=150, blank=True, null=True)
+    organization = models.CharField(max_length=150, blank=True, null=True)
+    bio = models.TextField(blank=True, null=True)
+    photo_url = models.CharField(max_length=500, blank=True, null=True)
+    display_order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -211,48 +102,26 @@ class TeamMemberSocial(models.Model):
     def __str__(self):
         return self.title
 
-    def to_supabase_dict(self):
-        return {
-            'title':         self.title,
-            'video_id':      self.video_id,
-            'thumbnail_url': self.thumbnail_url,
-            'published_at':  self.published_at,
-            'category':      self.category,
-        }
+class EventRegistration(models.Model):
+    STATUS_CHOICES = [
+        ('confirmed', 'confirmed'),
+        ('waitlisted', 'waitlisted'),
+        ('cancelled', 'cancelled'),
+        ('attended', 'attended'),
+    ]
 
-
-# Keep 'YouTubeVideo' as alias
-YouTubeVideo = TeamMemberSocial
-
-
-# ── WebinarListing (webinars on tiesverse.com landing) ────────────────────────
-class WebinarListing(models.Model):
-    title = models.CharField(max_length=255)
-    speaker = models.CharField(max_length=255, blank=True)
-    org = models.CharField(max_length=255, blank=True)
-    date = models.CharField(max_length=50, blank=True)
-    time_tz = models.CharField(max_length=50, blank=True)
-    cover_url = models.URLField(blank=True)
-    registration_link = models.URLField(blank=True)
-    status = models.CharField(max_length=10, default='upcoming')
-    kind = models.CharField(max_length=50, default='webinar')
-    created_at = models.DateTimeField(auto_now_add=True)
+    event = models.ForeignKey(Event, on_delete=models.CASCADE)
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100)
+    email = models.EmailField(max_length=255)
+    phone = models.CharField(max_length=30, blank=True, null=True)
+    organization = models.CharField(max_length=150, blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='confirmed')
+    notes = models.TextField(blank=True, null=True)
+    registered_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'webinars'
 
     def __str__(self):
-        return self.title
-
-    def to_supabase_dict(self):
-        return {
-            'title':             self.title,
-            'speaker':           self.speaker,
-            'org':               self.org,
-            'date':              self.date,
-            'time_tz':           self.time_tz,
-            'cover_url':         self.cover_url,
-            'registration_link': self.registration_link,
-            'status':            self.status,
-            'kind':              self.kind,
-        }
+        return f"{self.first_name} {self.last_name} - {self.event.title}"

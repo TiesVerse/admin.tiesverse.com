@@ -28,9 +28,7 @@ const darkenColor = (hex, percent) => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [authTokens, setAuthTokens] = useState(() => 
-    localStorage.getItem('authTokens') ? JSON.parse(localStorage.getItem('authTokens')) : null
-  );
+  const [authTokens, setAuthTokens] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const applyThemeAndColor = (profileData) => {
@@ -75,7 +73,6 @@ export const AuthProvider = ({ children }) => {
         setAuthTokens(response.data);
         const decoded = jwtDecode(response.data.access);
         setUser(decoded);
-        localStorage.setItem('authTokens', JSON.stringify(response.data));
         return { success: true };
       }
     } catch (error) {
@@ -87,7 +84,6 @@ export const AuthProvider = ({ children }) => {
     setAuthTokens(null);
     setUser(null);
     setProfile(null);
-    localStorage.removeItem('authTokens');
     
     // Reset to defaults
     const root = document.documentElement;
@@ -160,17 +156,6 @@ export const AuthProvider = ({ children }) => {
     };
   }, [authTokens, profile?.session_timeout]);
 
-  // ── Cross-tab auth sync ───────────────────────────────────────────
-  // If the user logs out (idle or manual) or in from another tab, mirror it.
-  useEffect(() => {
-    const onStorage = (e) => {
-      if (e.key === 'authTokens') {
-        setAuthTokens(e.newValue ? JSON.parse(e.newValue) : null);
-      }
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
 
   const contextData = {
     user,

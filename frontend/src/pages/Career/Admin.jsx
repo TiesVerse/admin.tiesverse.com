@@ -5,7 +5,7 @@ import {
     getEnrollments, updateEnrollment, deleteEnrollment,
     getOfferLetters, createOfferLetter, updateOfferLetter, deleteOfferLetter,
     getCandidates, updateCandidate, getFormGates, updateFormGates,
-    downloadFile
+    downloadFile, sendOffer
 } from '../../apiClient';
 import { Plus, Edit2, Trash2, X, Sparkles, Briefcase, FileText, Mail, Users, ToggleRight, CheckCircle, ExternalLink, Search, Download, Eye } from 'lucide-react';
 import jsPDF from 'jspdf';
@@ -86,6 +86,10 @@ const CareerAdmin = ({ tab = 'positions' }) => {
     const [filterDepartment, setFilterDepartment] = useState('All');
     const [filterStatus, setFilterStatus] = useState('All');
 
+    // Offer letter sending
+    const [sendingOffer, setSendingOffer] = useState(null);
+    const [offerSent, setOfferSent] = useState({});
+
     // Modals
     const [pdfModalOpen, setPdfModalOpen] = useState(false);
     const [pdfConfig, setPdfConfig] = useState({ department: 'All', status: 'All' });
@@ -96,22 +100,70 @@ const CareerAdmin = ({ tab = 'positions' }) => {
         setTimeout(() => setNotification(null), 4000);
     };
 
+    const handleSendOffer = async (candidate) => {
+        setSendingOffer(candidate.id);
+        try {
+            const doc = new jsPDF();
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(22);
+            doc.text('Offer Letter', 105, 30, { align: 'center' });
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(12);
+            doc.text(`Dear ${candidate.first_name} ${candidate.last_name},`, 20, 55);
+            doc.text('We are pleased to offer you a position at Tiesverse. Please find the details below:', 20, 70, { maxWidth: 170 });
+            doc.autoTable({
+                startY: 90,
+                head: [['Field', 'Details']],
+                body: [
+                    ['Role', candidate.roles || 'N/A'],
+                    ['Department', candidate.department || 'N/A'],
+                    ['Status', 'Selected'],
+                ],
+                theme: 'grid',
+                headStyles: { fillColor: [254, 122, 0] },
+                styles: { fontSize: 10 },
+            });
+            const finalY = doc.lastAutoTable.finalY + 20;
+            doc.text('Congratulations on being selected! Our team will be in touch shortly with next steps.', 20, finalY, { maxWidth: 170 });
+            doc.text('Regards,\nTiesverse HR Team', 20, finalY + 20);
+
+            const pdfBase64 = doc.output('datauristring').split(',')[1];
+            await sendOffer({
+                candidate_id: candidate.id,
+                candidate_email: candidate.email,
+                candidate_name: `${candidate.first_name} ${candidate.last_name}`,
+                role: candidate.roles,
+                department: candidate.department,
+                pdf_base64: pdfBase64,
+            });
+            setOfferSent(prev => ({ ...prev, [candidate.id]: true }));
+            showNotice(`Offer letter sent to ${candidate.email}!`);
+        } catch (err) {
+            showNotice('Failed to send offer letter: ' + (err?.message || 'Unknown error'), 'error');
+        }
+        setSendingOffer(null);
+    };
+
     const fetchData = async () => {
         setLoading(true);
         try {
-            const data = await config.fetchFn();
-            if (tab === 'form_gates') {
-                // For form gates, data is an object. We'll turn it into an array of key-value pairs for list rendering.
-                const gatesArray = Object.entries(data || {}).map(([key, value]) => ({ id: key, name: key, is_open: value }));
-                setItems(gatesArray);
-            } else if (tab === 'candidates') {
-                setItems(data.data || data || []);
-            } else {
-                setItems(data || []);
-            }
             if (tab === 'offers') {
-                const enrData = await getEnrollments();
-                setEnrollmentsList(enrData || []);
+                // Show Selected D1 candidates for offer letter generation.
+                const cands = await getCandidates();
+                const selected = (cands?.data || cands || []).filter(c => c.final_decision === 'Selected' || c.final_decision === 'Accepted');
+                setItems(selected);
+            } else {
+                const data = await config.fetchFn();
+                if (tab === 'form_gates') {
+                    // getFormGates returns { status, gates: {...} } — iterate the gates map.
+                    const gates = data?.gates || {};
+                    const gatesArray = Object.entries(gates).map(([key, value]) => ({ id: key, name: key, is_open: value }));
+                    setItems(gatesArray);
+                } else if (tab === 'candidates') {
+                    setItems(data.data || data || []);
+                } else {
+                    setItems(data || []);
+                }
             }
         } catch (err) {
             console.error('Fetch error:', err);
@@ -245,7 +297,7 @@ const CareerAdmin = ({ tab = 'positions' }) => {
             const updatedGates = {};
             items.forEach(item => { updatedGates[item.name] = item.is_open; });
             updatedGates[key] = !currentValue;
-            await updateFormGates(updatedGates);
+            await updateFormGates({ gates: updatedGates });
             showNotice('Form gate updated!');
             fetchData();
         } catch (err) {
@@ -305,7 +357,7 @@ const CareerAdmin = ({ tab = 'positions' }) => {
                     <select name="status" value={formData.status || 'Pending'} onChange={handleInputChange} style={selectStyle}>
                         <option value="Pending">Pending</option>
                         <option value="Reviewed">Reviewed</option>
-                        <option value="Accepted">Accepted</option>
+                        <option value="Selected">Selected</option>
                         <option value="Rejected">Rejected</option>
                     </select>
                 </div>
@@ -507,7 +559,7 @@ const CareerAdmin = ({ tab = 'positions' }) => {
                                         <>
                                             <option value="Pending">Pending</option>
                                             <option value="Reviewed">Reviewed</option>
-                                            <option value="Accepted">Accepted</option>
+                                            <option value="Selected">Selected</option>
                                             <option value="Rejected">Rejected</option>
                                         </>
                                     )}
@@ -523,6 +575,45 @@ const CareerAdmin = ({ tab = 'positions' }) => {
                         <div style={{ textAlign: 'center', padding: '80px 0', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
                             {config.icon && React.cloneElement(config.icon, { size: 40, style: { color: 'rgba(255,255,255,0.15)', marginBottom: '12px' } })}
                             <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.875rem', fontWeight: 600 }}>No {config.itemLabel.toLowerCase()}s found.</p>
+                        </div>
+                    ) : tab === 'offers' ? (
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                                        {['Name', 'Email', 'Department', 'Role', 'Action'].map(h => (
+                                            <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: 'rgba(255,255,255,0.4)', fontWeight: 700, fontSize: '0.6875rem', textTransform: 'uppercase', letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredItems.map(c => (
+                                        <tr key={c.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                            <td style={{ padding: '12px 14px', color: '#fff', fontWeight: 600, whiteSpace: 'nowrap' }}>{c.first_name} {c.last_name}</td>
+                                            <td style={{ padding: '12px 14px', color: 'rgba(255,255,255,0.5)' }}>{c.email}</td>
+                                            <td style={{ padding: '12px 14px' }}>
+                                                <span style={{ fontSize: '0.6875rem', fontWeight: 700, background: 'rgba(255,255,255,0.06)', padding: '3px 8px', borderRadius: 6 }}>{c.department}</span>
+                                            </td>
+                                            <td style={{ padding: '12px 14px', color: 'rgba(255,255,255,0.6)' }}>{c.roles}</td>
+                                            <td style={{ padding: '12px 14px' }}>
+                                                {offerSent[c.id] ? (
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#10B981', fontSize: '0.8125rem', fontWeight: 700 }}>
+                                                        <CheckCircle size={14} /> Sent
+                                                    </span>
+                                                ) : (
+                                                    <button
+                                                        disabled={sendingOffer === c.id}
+                                                        onClick={() => handleSendOffer(c)}
+                                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'var(--primary)', color: '#000', border: 'none', borderRadius: 8, fontSize: '0.8125rem', fontWeight: 800, cursor: sendingOffer === c.id ? 'wait' : 'pointer', opacity: sendingOffer === c.id ? 0.7 : 1 }}
+                                                    >
+                                                        <Mail size={13} /> {sendingOffer === c.id ? 'Sending…' : 'Send Offer'}
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     ) : (
                         <div style={{ display: 'grid', gridTemplateColumns: tab === 'form_gates' ? 'repeat(auto-fill, minmax(400px, 1fr))' : 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
@@ -604,7 +695,7 @@ const CareerAdmin = ({ tab = 'positions' }) => {
                                         <>
                                             <option value="Pending">Pending</option>
                                             <option value="Reviewed">Reviewed</option>
-                                            <option value="Accepted">Accepted</option>
+                                            <option value="Selected">Selected</option>
                                             <option value="Rejected">Rejected</option>
                                         </>
                                     )}

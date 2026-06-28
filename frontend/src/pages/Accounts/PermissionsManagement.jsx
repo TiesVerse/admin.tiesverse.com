@@ -58,8 +58,9 @@ const PermissionsManagement = () => {
   const friendlyModelNames = {
     'event': 'Events', 'article': 'Articles', 'youtubevideo': 'YouTube Videos',
     'workshop': 'Workshops', 'teammember': 'Team Members', 'guest': 'Guests',
-    'position': 'Positions', 'enrollment': 'Enrollments', 'offerletter': 'Offer Letters',
+    'position': 'Positions', 'enrollment': 'Applications', 'offerletter': 'Offer Letters',
     'webinarevent': 'Webinar Events', 'registrationform': 'Registrations',
+    'eventregistration': 'Webinars & Workshops',
     'calendarevent': 'Calendar Events',
   };
   const friendlyAppNames = {
@@ -160,8 +161,8 @@ const PermissionsManagement = () => {
 
       {/* ── POP-UP MODAL for Permissions ── */}
       {activeModal && (
-        <div style={styles.modalOverlay} onClick={() => setActiveModal(null)}>
-          <div style={styles.modalContent} onClick={e => e.stopPropagation()}>
+        <div className="app-modal-overlay" style={styles.modalOverlay} onClick={() => setActiveModal(null)}>
+          <div className="app-modal permissions-modal" style={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-main)' }}>

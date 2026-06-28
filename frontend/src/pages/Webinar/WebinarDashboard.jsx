@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { getWebinarEvents, getWebinarRegistrations, createWebinarEvent } from '../../apiClient';
+import { getEvents, getEventRegistrations, getWebinarRegistrations } from '../../apiClient';
 import { Video, Users, CheckSquare, RefreshCw } from 'lucide-react';
 
 const WebinarDashboard = () => {
   const [events, setEvents] = useState([]);
+  const [listings, setListings] = useState([]);
   const [registrations, setRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -13,11 +14,13 @@ const WebinarDashboard = () => {
     setLoading(true);
     setError('');
     try {
-      const [evts, regs] = await Promise.all([
-        getWebinarEvents(),
+      const [evts, content, regs] = await Promise.all([
+        getEvents(),
+        getEventRegistrations(),
         getWebinarRegistrations(),
       ]);
       setEvents(Array.isArray(evts) ? evts : []);
+      setListings(Array.isArray(content) ? content : []);
       if (regs && regs.error) {
         setError(regs.error);
         setRegistrations([]);
@@ -52,10 +55,10 @@ const WebinarDashboard = () => {
       {/* Stats */}
       <div className="dashboard-grid" style={{ marginBottom: 24 }}>
         {[
-          { label: 'Total Webinars', value: events.length, icon: <Video size={20} />, color: '#FE7A00' },
+          { label: 'Webinars & Workshops', value: listings.length, icon: <Video size={20} />, color: '#FE7A00' },
           { label: 'Total Registrations', value: registrations.length, icon: <Users size={20} />, color: '#3B82F6' },
           { label: 'Webinar Signups', value: webinarRegs.length, icon: <CheckSquare size={20} />, color: '#A855F7' },
-          { label: 'Event Signups', value: eventRegs.length, icon: <CheckSquare size={20} />, color: '#22C55E' },
+          { label: `Event Signups / ${events.length} Events`, value: eventRegs.length, icon: <CheckSquare size={20} />, color: '#22C55E' },
         ].map(s => (
           <div className="metric-card" key={s.label}>
             <div className="metric-content">

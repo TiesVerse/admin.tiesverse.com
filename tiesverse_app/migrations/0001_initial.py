@@ -108,7 +108,6 @@ class Migration(migrations.Migration):
             ],
             options={
                 'db_table': 'event_registrations',
-                'constraints': [models.UniqueConstraint(fields=('event', 'email'), name='unique_event_email_registration')],
             },
         ),
         migrations.CreateModel(
@@ -124,7 +123,6 @@ class Migration(migrations.Migration):
             ],
             options={
                 'db_table': 'team_member_socials',
-                'constraints': [models.UniqueConstraint(fields=('team_member', 'platform'), name='unique_team_member_platform')],
             },
         ),
     ]

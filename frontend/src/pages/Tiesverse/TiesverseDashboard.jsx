@@ -1,275 +1,325 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  getEvents, getDepartments, getTeamMembers, getEventSpeakers, createEvent, updateSetting
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  ArrowUpRight,
+  BarChart3,
+  CalendarDays,
+  CheckCircle2,
+  FileText,
+  RefreshCw,
+  TrendingUp,
+  Users,
+} from 'lucide-react';
+import {
+  getDepartments,
+  getEventSpeakers,
+  getEvents,
+  getTeamMembers,
+  getWebinarRegistrations,
 } from '../../apiClient';
-import { Calendar, BookOpen, PlaySquare, Users, Download, Plus, RefreshCw, ArrowUpRight } from 'lucide-react';
+import './TiesverseDashboard.css';
+
+const emptyData = {
+  events: [],
+  departments: [],
+  team: [],
+  speakers: [],
+  registrations: [],
+};
+
+const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getInitials(name = '') {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'TV';
+}
+
+function formatRelativeTime(value) {
+  const date = parseDate(value);
+  if (!date) return 'Recently';
+  const seconds = Math.max(1, Math.round((Date.now() - date.getTime()) / 1000));
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+  return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function buildMonthlySeries(items, dateKeys) {
+  const counts = Array.from({ length: 6 }, () => 0);
+  const now = new Date();
+  const labels = [];
+
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const cursor = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    labels.push(monthLabels[cursor.getMonth()]);
+  }
+
+  items.forEach((item) => {
+    const date = dateKeys.map((key) => parseDate(item?.[key])).find(Boolean);
+    if (!date) return;
+    const monthOffset = (now.getFullYear() - date.getFullYear()) * 12 + (now.getMonth() - date.getMonth());
+    if (monthOffset >= 0 && monthOffset < 6) counts[5 - monthOffset] += 1;
+  });
+
+  return { labels, counts };
+}
+
+function buildLinePath(values, width = 620, height = 210) {
+  const max = Math.max(...values, 1);
+  const points = values.map((value, index) => {
+    const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
+    const y = height - 24 - (value / max) * (height - 54);
+    return [x, y];
+  });
+  return {
+    path: points.map(([x, y], index) => `${index === 0 ? 'M' : 'L'}${x},${y}`).join(' '),
+    area: `${points.map(([x, y], index) => `${index === 0 ? 'M' : 'L'}${x},${y}`).join(' ')} L${width},${height} L0,${height} Z`,
+    points,
+  };
+}
+
+const MetricCard = ({ icon: Icon, label, value, helper }) => (
+  <article className="tv-metric-card">
+    <div className="tv-metric-topline">
+      <span className="tv-metric-icon"><Icon size={21} strokeWidth={1.9} /></span>
+      <span className="tv-metric-helper">{helper}</span>
+    </div>
+    <p>{label}</p>
+    <strong>{value}</strong>
+  </article>
+);
 
 const TiesverseDashboard = () => {
-  const [stats, setStats] = useState({
-    events: 0,
-    departments: 0,
-    team: 0,
-    speakers: 0
-  });
+  const navigate = useNavigate();
+  const [data, setData] = useState(emptyData);
   const [loading, setLoading] = useState(true);
-  const [actionStatus, setActionStatus] = useState('');
+  const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  const fetchStats = async () => {
+  const loadDashboard = useCallback(async () => {
     setLoading(true);
+    setError('');
+
     try {
-      const [events, departments, team, speakers] = await Promise.all([
-        getEvents().catch(() => []),
-        getDepartments().catch(() => []),
-        getTeamMembers().catch(() => []),
-        getEventSpeakers().catch(() => [])
+      const results = await Promise.allSettled([
+        getEvents(),
+        getDepartments(),
+        getTeamMembers(),
+        getEventSpeakers(),
+        getWebinarRegistrations(),
       ]);
 
-      setStats({
-        events: Array.isArray(events) ? events.length : 0,
-        departments: Array.isArray(departments) ? departments.length : 0,
-        team: Array.isArray(team) ? team.length : 0,
-        speakers: Array.isArray(speakers) ? speakers.length : 0
-      });
-    } catch (err) {
-      console.error("Error loading dashboard statistics:", err);
+      const [events, departments, team, speakers, registrations] = results.map((result) =>
+        result.status === 'fulfilled' ? safeArray(result.value) : []
+      );
+
+      if (results.some((result) => result.status === 'rejected')) {
+        setError('Some live data could not be refreshed. Showing the available records.');
+      }
+
+      setData({ events, departments, team, speakers, registrations });
+      setLastUpdated(new Date());
+    } catch (loadError) {
+      console.error('Error loading Tiesverse dashboard:', loadError);
+      setError('The dashboard could not reach the API. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchStats();
   }, []);
 
-  const handleDownloadReport = () => {
-    const reportData = {
-      timestamp: new Date().toISOString(),
-      statistics: stats,
-      details: "Tiesverse Content Administrative Report"
-    };
-    const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `tiesverse-report-${new Date().toISOString().split('T')[0]}.json`;
-    link.click();
-    setActionStatus('Report downloaded successfully!');
-    setTimeout(() => setActionStatus(''), 3000);
-  };
+  useEffect(() => {
+    const timer = window.setTimeout(loadDashboard, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadDashboard]);
 
-  const handleAddMockEvent = async () => {
-    setActionStatus('Adding mock event...');
-    try {
-      const mockEvent = {
-        title: `AI & Global Governance Seminar (${new Date().toLocaleDateString()})`,
-        description: "An administrative panel test event discussing artificial intelligence policy frameworks and emerging security regulations.",
-        start_datetime: `${new Date().toISOString().split('T')[0]}T14:00`,
-        end_datetime: `${new Date().toISOString().split('T')[0]}T16:00`,
-        location: "Virtual / Webinar",
-        max_attendees: 100,
-        status: "PUBLISHED",
-        event_type: "SEMINAR",
-        registration_required: true
-      };
-      await createEvent(mockEvent);
-      setActionStatus('Mock event added successfully!');
-      fetchStats();
-    } catch (err) {
-      setActionStatus('Failed to create mock event');
-    }
-    setTimeout(() => setActionStatus(''), 3000);
-  };
-
-  const handleResetSettings = async () => {
-    setActionStatus('Resetting settings...');
-    try {
-      await updateSetting('event_display_limit_pc', { value: '2' });
-      await updateSetting('article_display_limit_pc', { value: '3' });
-      await updateSetting('youtube_display_limit_pc', { value: '3' });
-      setActionStatus('Site settings reset to defaults!');
-    } catch (err) {
-      setActionStatus('Failed to reset settings');
-    }
-    setTimeout(() => setActionStatus(''), 3000);
-  };
+  const contentSeries = useMemo(
+    () => buildMonthlySeries([...data.departments, ...data.team, ...data.speakers], ['created_at', 'date']),
+    [data.departments, data.team, data.speakers]
+  );
+  const eventsSeries = useMemo(
+    () => buildMonthlySeries(data.events, ['created_at', 'date']),
+    [data.events]
+  );
+  const line = useMemo(() => buildLinePath(contentSeries.counts), [contentSeries]);
+  const maxEvents = Math.max(...eventsSeries.counts, 1);
+  const recentRegistrations = data.registrations.slice(0, 5);
 
   return (
-    <div className="dashboard-container">
-      <div className="dashboard-title-section">
+    <div className="tv-dashboard">
+      <section className="tv-dashboard-heading">
         <div>
-          <h1 className="page-title">Dashboard</h1>
-          <p className="dashboard-desc">Welcome back! Here's what's happening today.</p>
+          <span className="tv-eyebrow">Tiesverse overview</span>
+          <h1>Dashboard</h1>
+          <p>Welcome back. Here is what is happening across Tiesverse today.</p>
         </div>
-        <button className="btn btn-primary" onClick={fetchStats} disabled={loading}>
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          Refresh Stats
-        </button>
-      </div>
-
-      {actionStatus && (
-        <div style={{
-          padding: '1rem',
-          background: 'rgba(232, 90, 36, 0.1)',
-          border: '1px solid rgba(232, 90, 36, 0.3)',
-          color: '#FE7A00',
-          borderRadius: 'var(--radius)',
-          fontWeight: 600,
-          fontSize: '0.875rem'
-        }}>
-          {actionStatus}
+        <div className="tv-heading-actions">
+          {lastUpdated && (
+            <span className="tv-updated">
+              Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          <button type="button" className="tv-primary-button" onClick={loadDashboard} disabled={loading}>
+            <RefreshCw size={17} className={loading ? 'tv-spin' : ''} />
+            {loading ? 'Refreshing' : 'Refresh stats'}
+          </button>
         </div>
-      )}
+      </section>
 
-      <div className="dashboard-grid">
-        <div className="metric-card">
-          <div className="metric-content">
-            <span className="metric-label">Total Events</span>
-            <div className="metric-value-row">
-              <span className="metric-value">{stats.events || 156}</span>
-              <span className="metric-change positive">+12.5%</span>
-            </div>
-          </div>
-          <div className="metric-icon-box" style={{ background: 'rgba(232, 90, 36, 0.1)', color: '#FE7A00' }}>
-            <Calendar size={20} />
-          </div>
-        </div>
+      {error && <div className="tv-dashboard-alert">{error}</div>}
 
-        <div className="metric-card">
-          <div className="metric-content">
-            <span className="metric-label">Departments</span>
-            <div className="metric-value-row">
-              <span className="metric-value">{stats.departments || 4}</span>
-              <span className="metric-change positive">+1</span>
-            </div>
-          </div>
-          <div className="metric-icon-box" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3B82F6' }}>
-            <BookOpen size={20} />
-          </div>
-        </div>
+      <section className="tv-metric-grid" aria-label="Tiesverse statistics">
+        <MetricCard icon={CalendarDays} label="Total events" value={loading ? '—' : data.events.length} helper="Live" />
+        <MetricCard icon={FileText} label="Articles & reports" value={loading ? '—' : data.departments.length} helper="Published" />
+        <MetricCard icon={Users} label="Team members" value={loading ? '—' : data.team.length} helper="Active" />
+        <MetricCard icon={CheckCircle2} label="Speakers" value={loading ? '—' : data.speakers.length} helper="Profiles" />
+      </section>
 
-        <div className="metric-card">
-          <div className="metric-content">
-            <span className="metric-label">Team Members</span>
-            <div className="metric-value-row">
-              <span className="metric-value">{stats.team || 12}</span>
-              <span className="metric-change positive">+2</span>
-            </div>
-          </div>
-          <div className="metric-icon-box" style={{ background: 'rgba(168, 85, 247, 0.1)', color: '#A855F7' }}>
-            <Users size={20} />
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-content">
-            <span className="metric-label">Speakers</span>
-            <div className="metric-value-row">
-              <span className="metric-value">{stats.speakers || 24}</span>
-              <span className="metric-change positive">+5</span>
-            </div>
-          </div>
-          <div className="metric-icon-box" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10B981' }}>
-            <PlaySquare size={20} />
-          </div>
-        </div>
-      </div>
-
-      <div className="charts-grid">
-        <div className="chart-card">
-          <div className="chart-header">
+      <section className="tv-chart-grid">
+        <article className="tv-panel tv-chart-panel">
+          <div className="tv-panel-heading">
             <div>
-              <h3 className="chart-title">User Growth</h3>
-              <span className="chart-subtitle">Monthly active users</span>
+              <h2>Content growth</h2>
+              <p>New articles, team members and speakers</p>
             </div>
-            <ArrowUpRight size={18} style={{ color: '#FE7A00' }} />
+            <TrendingUp size={20} />
           </div>
-          <div className="chart-container">
-            <svg viewBox="0 0 400 200" className="chart-svg">
+          <div className="tv-line-chart" aria-label="Content growth over six months">
+            <svg key={line.path} viewBox="0 0 620 230" preserveAspectRatio="none" role="img">
               <defs>
-                <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#FE7A00" stopOpacity="0.4"/>
-                  <stop offset="100%" stopColor="#FE7A00" stopOpacity="0"/>
+                <linearGradient id="tv-area-gradient" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.22" />
+                  <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
                 </linearGradient>
               </defs>
-              <g stroke="#334155" strokeWidth="0.5" strokeDasharray="4 4">
-                <line x1="0" y1="50" x2="400" y2="50" />
-                <line x1="0" y1="100" x2="400" y2="100" />
-                <line x1="0" y1="150" x2="400" y2="150" />
-              </g>
-              <path 
-                d="M0,80 Q70,40 140,130 T280,100 T400,60" 
-                fill="none" 
-                stroke="#FE7A00" 
-                strokeWidth="3" 
-              />
-              <path 
-                d="M0,80 Q70,40 140,130 T280,100 T400,60 L400,200 L0,200 Z" 
-                fill="url(#areaGradient)" 
-              />
-              <circle cx="140" cy="130" r="5" fill="#FE7A00" stroke="#fff" strokeWidth="2" />
-              <circle cx="280" cy="100" r="5" fill="#FE7A00" stroke="#fff" strokeWidth="2" />
-              <text x="10" y="190" fill="#94A3B8" fontSize="10">Jan</text>
-              <text x="130" y="190" fill="#94A3B8" fontSize="10">Mar</text>
-              <text x="270" y="190" fill="#94A3B8" fontSize="10">May</text>
-              <text x="370" y="190" fill="#94A3B8" fontSize="10">Jul</text>
+              {[48, 105, 162].map((y) => <line key={y} x1="0" x2="620" y1={y} y2={y} />)}
+              <path className="tv-chart-area" d={line.area} />
+              <path className="tv-chart-line" d={line.path} />
+              {line.points.map(([x, y], index) => (
+                <circle key={`${x}-${y}`} cx={x} cy={y} r="4" className="tv-chart-point">
+                  <title>{`${contentSeries.labels[index]}: ${contentSeries.counts[index]}`}</title>
+                </circle>
+              ))}
             </svg>
-          </div>
-        </div>
-
-        <div className="chart-card">
-          <div className="chart-header">
-            <div>
-              <h3 className="chart-title">Events Overview</h3>
-              <span className="chart-subtitle">Monthly events created</span>
+            <div className="tv-chart-labels">
+              {contentSeries.labels.map((label) => <span key={label}>{label}</span>)}
             </div>
-            <ArrowUpRight size={18} style={{ color: '#FE7A00' }} />
           </div>
-          <div className="chart-container">
-            <svg viewBox="0 0 400 200" className="chart-svg">
-              <g stroke="#334155" strokeWidth="0.5" strokeDasharray="4 4">
-                <line x1="0" y1="50" x2="400" y2="50" />
-                <line x1="0" y1="100" x2="400" y2="100" />
-                <line x1="0" y1="150" x2="400" y2="150" />
-              </g>
-              <g fill="#FE7A00">
-                <rect x="20" y="80" width="30" height="120" rx="4" />
-                <rect x="80" y="110" width="30" height="90" rx="4" />
-                <rect x="140" y="50" width="30" height="150" rx="4" />
-                <rect x="200" y="90" width="30" height="110" rx="4" />
-                <rect x="260" y="40" width="30" height="160" rx="4" />
-                <rect x="320" y="70" width="30" height="130" rx="4" />
-              </g>
-              <text x="25" y="190" fill="var(--text-muted)" fontSize="8" fontWeight="semibold">Feb</text>
-              <text x="85" y="190" fill="var(--text-muted)" fontSize="8" fontWeight="semibold">Apr</text>
-              <text x="145" y="190" fill="var(--text-muted)" fontSize="8" fontWeight="semibold">Jun</text>
-              <text x="205" y="190" fill="var(--text-muted)" fontSize="8" fontWeight="semibold">Aug</text>
-              <text x="265" y="190" fill="var(--text-muted)" fontSize="8" fontWeight="semibold">Oct</text>
-              <text x="325" y="190" fill="var(--text-muted)" fontSize="8" fontWeight="semibold">Dec</text>
-            </svg>
-          </div>
-        </div>
-      </div>
+        </article>
 
-      <div className="actions-card">
-        <h3 className="chart-title">Quick Actions</h3>
-        <div className="actions-grid">
-          <button className="action-btn" onClick={handleDownloadReport}>
-            <Download size={18} style={{ color: '#FE7A00' }} />
-            <span className="action-btn-title">Download Statistics</span>
-            <span className="action-btn-desc">Download complete tiesverse content stats as JSON.</span>
+        <article className="tv-panel tv-chart-panel">
+          <div className="tv-panel-heading">
+            <div>
+              <h2>Events overview</h2>
+              <p>Events created during the last six months</p>
+            </div>
+            <BarChart3 size={20} />
+          </div>
+          <div className="tv-bar-chart" aria-label="Events created over six months">
+            {eventsSeries.counts.map((count, index) => (
+              <div className="tv-bar-column" key={`${eventsSeries.labels[index]}-${index}`}>
+                <div className="tv-bar-track">
+                <span
+                  style={{
+                    height: `${Math.max(count ? 16 : 4, (count / maxEvents) * 100)}%`,
+                    animationDelay: `${index * 85}ms`,
+                  }}
+                >
+                    <b>{count}</b>
+                  </span>
+                </div>
+                <small>{eventsSeries.labels[index]}</small>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="tv-bottom-grid">
+        <article className="tv-panel tv-registrations-panel">
+          <div className="tv-panel-heading">
+            <div>
+              <h2>Recent registrations</h2>
+              <p>Live from the hosted Turso database</p>
+            </div>
+            <button type="button" className="tv-text-button" onClick={() => navigate('/webinar/registrations')}>
+              View all <ArrowUpRight size={15} />
+            </button>
+          </div>
+
+          <div className="tv-table-wrap">
+            <table className="tv-registration-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Event</th>
+                  <th>Status</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentRegistrations.length > 0 ? recentRegistrations.map((registration, index) => {
+                  const name = registration.name || 'Tiesverse guest';
+                  const status = registration.payment_status === 'paid'
+                    ? 'Paid'
+                    : registration.payment_required === '1'
+                      ? 'Pending'
+                      : 'Confirmed';
+                  return (
+                    <tr key={registration.id || `${registration.email}-${index}`}>
+                      <td>
+                        <span className="tv-avatar">{getInitials(name)}</span>
+                        <span>
+                          <strong>{name}</strong>
+                          <small>{registration.email || 'Registration attendee'}</small>
+                        </span>
+                      </td>
+                      <td>{registration.event_title || 'Tiesverse event'}</td>
+                      <td><span className={`tv-status tv-status-${status.toLowerCase()}`}>{status}</span></td>
+                      <td>{formatRelativeTime(registration.registered_at)}</td>
+                    </tr>
+                  );
+                }) : (
+                  <tr>
+                    <td colSpan="4" className="tv-empty-state">
+                      {loading ? 'Loading registrations…' : 'No registrations have arrived yet.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <aside className="tv-focus-card">
+          <span className="tv-focus-icon"><ArrowUpRight size={23} /></span>
+          <div>
+            <span className="tv-eyebrow">Quick access</span>
+            <h2>Keep Tiesverse current.</h2>
+            <p>Review public events, update listings, and publish changes from one place.</p>
+          </div>
+          <button type="button" onClick={() => navigate('/webinar/events')}>
+            Manage events <ArrowUpRight size={16} />
           </button>
-          <button className="action-btn" onClick={handleAddMockEvent}>
-            <Plus size={18} style={{ color: '#FE7A00' }} />
-            <span className="action-btn-title">Add Mock Event</span>
-            <span className="action-btn-desc">Instantly populate a mock governance event in the DB.</span>
-          </button>
-          <button className="action-btn" onClick={handleResetSettings}>
-            <RefreshCw size={18} style={{ color: '#FE7A00' }} />
-            <span className="action-btn-title">Reset Settings</span>
-            <span className="action-btn-desc">Revert limits for events/articles to system defaults.</span>
-          </button>
-        </div>
-      </div>
+        </aside>
+      </section>
     </div>
   );
 };

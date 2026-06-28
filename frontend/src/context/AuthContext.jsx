@@ -2,10 +2,21 @@ import React, { createContext, useState, useEffect } from 'react';
 import { jwtDecode } from 'jwt-decode';
 import axios from 'axios';
 import { setApiToken } from '../apiClient';
+import { ThemeContext } from './ThemeContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 export const AuthContext = createContext();
+
+const readStoredTokens = () => {
+  try {
+    const stored = sessionStorage.getItem('tiesverseAuthTokens');
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    sessionStorage.removeItem('tiesverseAuthTokens');
+    return null;
+  }
+};
 
 // Idle auto-logout window (minutes) used until the user's profile loads.
 // The real value comes from profile.session_timeout (the "Session Invalidation
@@ -27,18 +38,18 @@ const darkenColor = (hex, percent) => {
 };
 
 export const AuthProvider = ({ children }) => {
+  const { setTheme } = React.useContext(ThemeContext);
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [authTokens, setAuthTokens] = useState(null);
+  const [authTokens, setAuthTokens] = useState(readStoredTokens);
   const [loading, setLoading] = useState(true);
 
   const applyThemeAndColor = (profileData) => {
     if (!profileData) return;
     const root = document.documentElement;
-    if (profileData.theme === 'light') {
-      root.classList.add('light');
-    } else {
-      root.classList.remove('light');
+    if (profileData.theme === 'light' || profileData.theme === 'dark') {
+      setTheme(profileData.theme);
+      localStorage.setItem('theme', profileData.theme);
     }
 
     if (profileData.accent_color) {
@@ -72,6 +83,7 @@ export const AuthProvider = ({ children }) => {
       });
       if (response.status === 200) {
         setAuthTokens(response.data);
+        sessionStorage.setItem('tiesverseAuthTokens', JSON.stringify(response.data));
         setApiToken(response.data.access);
         const decoded = jwtDecode(response.data.access);
         setUser(decoded);
@@ -84,13 +96,15 @@ export const AuthProvider = ({ children }) => {
 
   const logoutUser = () => {
     setAuthTokens(null);
+    sessionStorage.removeItem('tiesverseAuthTokens');
     setApiToken(null);
     setUser(null);
     setProfile(null);
     
     // Reset to defaults
     const root = document.documentElement;
-    root.classList.remove('light');
+    setTheme('light');
+    localStorage.removeItem('theme');
     root.style.removeProperty('--primary');
     root.style.removeProperty('--primary-hover');
   };
@@ -102,15 +116,16 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     if (authTokens) {
+      sessionStorage.setItem('tiesverseAuthTokens', JSON.stringify(authTokens));
       setApiToken(authTokens.access);
       setUser(jwtDecode(authTokens.access));
       fetchUserProfile(authTokens.access);
     } else {
+      sessionStorage.removeItem('tiesverseAuthTokens');
       setApiToken(null);
       setUser(null);
       setProfile(null);
       const root = document.documentElement;
-      root.classList.remove('light');
       root.style.removeProperty('--primary');
       root.style.removeProperty('--primary-hover');
     }

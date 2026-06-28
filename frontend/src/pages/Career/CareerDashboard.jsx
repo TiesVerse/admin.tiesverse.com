@@ -1,170 +1,271 @@
-import React, { useState, useEffect } from 'react';
-import { getCandidates, updateCandidateStatus, getPositions } from '../../apiClient';
-import { Briefcase, FileText, RefreshCw, ChevronDown } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  BriefcaseBusiness,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Plus,
+  RefreshCw,
+  Search,
+  Users,
+} from 'lucide-react';
+import { getCandidates, getPositions, updateCandidateStatus } from '../../apiClient';
+import './CareerDashboard.css';
 
 const DECISIONS = ['Under Review', 'Shortlisted', 'Selected', 'Rejected'];
 const STATUSES = ['Pending Setup', 'Interview Scheduled', 'Interview Done', 'On Hold'];
+const PAGE_SIZE = 8;
+const PREFERRED_DEPARTMENTS = ['Tech', 'Content', 'Operations', 'Media'];
+
+function initials(candidate) {
+  return [candidate.first_name, candidate.last_name]
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase())
+    .join('')
+    .slice(0, 2) || 'TV';
+}
+
+function candidateName(candidate) {
+  return [candidate.first_name, candidate.last_name].filter(Boolean).join(' ') || 'Unnamed candidate';
+}
 
 const CareerDashboard = () => {
+  const navigate = useNavigate();
   const [candidates, setCandidates] = useState([]);
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('All');
+  const [search, setSearch] = useState('');
   const [updating, setUpdating] = useState(null);
+  const [page, setPage] = useState(1);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [cands, pos] = await Promise.all([getCandidates(), getPositions()]);
-      if (cands && cands.error) {
-        setError(cands.error);
+      const [candidateResponse, positionResponse] = await Promise.all([getCandidates(), getPositions()]);
+      if (candidateResponse?.error) {
+        setError(candidateResponse.error);
         setCandidates([]);
       } else {
-        setCandidates(Array.isArray(cands) ? cands : []);
+        setCandidates(Array.isArray(candidateResponse) ? candidateResponse : []);
       }
-      setPositions(Array.isArray(pos) ? pos : []);
-    } catch (e) {
-      setError('Failed to load candidates');
+      setPositions(Array.isArray(positionResponse) ? positionResponse : []);
+    } catch {
+      setError('Failed to load candidates from the hosted ATS.');
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(fetchData, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchData]);
+
+  const departments = useMemo(() => {
+    const available = Array.from(new Set(candidates.map((candidate) => candidate.department).filter(Boolean)));
+    return ['All', ...PREFERRED_DEPARTMENTS.filter((item) => available.includes(item)), ...available.filter((item) => !PREFERRED_DEPARTMENTS.includes(item))];
+  }, [candidates]);
+
+  const filteredCandidates = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return candidates.filter((candidate) => {
+      if (filter !== 'All' && candidate.department !== filter) return false;
+      if (!query) return true;
+      return [
+        candidateName(candidate),
+        candidate.email,
+        candidate.department,
+        candidate.roles,
+        candidate.city,
+        candidate.interview_status,
+        candidate.final_decision,
+      ].some((value) => String(value || '').toLowerCase().includes(query));
+    });
+  }, [candidates, filter, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCandidates.length / PAGE_SIZE));
+  const activePage = Math.min(page, totalPages);
+  const visibleCandidates = filteredCandidates.slice((activePage - 1) * PAGE_SIZE, activePage * PAGE_SIZE);
+  const firstVisible = filteredCandidates.length ? (activePage - 1) * PAGE_SIZE + 1 : 0;
+  const lastVisible = Math.min(activePage * PAGE_SIZE, filteredCandidates.length);
+
+  const openPositions = positions.filter((position) => position.is_open).length;
+  const pendingReviews = candidates.filter((candidate) => (candidate.final_decision || 'Under Review') === 'Under Review').length;
+  const selectedCandidates = candidates.filter((candidate) => ['Selected', 'Accepted'].includes(candidate.final_decision)).length;
+
+  const handleFilter = (department) => {
+    setFilter(department);
+    setPage(1);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  const handleSearch = (event) => {
+    setSearch(event.target.value);
+    setPage(1);
+  };
 
   const handleDecision = async (id, field, value) => {
     setUpdating(id);
-    const cand = candidates.find(c => String(c.id) === String(id));
-    if (!cand) return;
-    await updateCandidateStatus(id, {
-      interview_status: field === 'interview_status' ? value : (cand.interview_status || ''),
-      interviewer: cand.interviewer || '',
-      rating: cand.rating || 0,
-      final_decision: field === 'final_decision' ? value : (cand.final_decision || 'Under Review'),
+    const candidate = candidates.find((item) => String(item.id ?? item.row_index) === String(id));
+    if (!candidate) {
+      setUpdating(null);
+      return;
+    }
+
+    const response = await updateCandidateStatus(id, {
+      interview_status: field === 'interview_status' ? value : (candidate.interview_status || ''),
+      interviewer: candidate.interviewer || '',
+      rating: candidate.rating || 0,
+      final_decision: field === 'final_decision' ? value : (candidate.final_decision || 'Under Review'),
     });
-    setCandidates(prev => prev.map(c => String(c.id) === String(id) ? { ...c, [field]: value } : c));
+
+    if (response?.error) {
+      setError(response.error);
+    } else {
+      setCandidates((current) => current.map((item) => (
+        String(item.id ?? item.row_index) === String(id) ? { ...item, [field]: value } : item
+      )));
+    }
     setUpdating(null);
   };
 
-  const departments = ['All', ...Array.from(new Set(candidates.map(c => c.department).filter(Boolean)))];
-  const shown = filter === 'All' ? candidates : candidates.filter(c => c.department === filter);
-
-  const openCount = positions.filter(p => p.is_open).length;
-  const pending = candidates.filter(c => c.final_decision === 'Under Review').length;
-  const selected = candidates.filter(c => c.final_decision === 'Selected').length;
+  const metrics = [
+    { label: 'Open Positions', value: openPositions, icon: BriefcaseBusiness, tone: 'orange', helper: `${positions.length} total` },
+    { label: 'Total Applicants', value: candidates.length, icon: Users, tone: 'indigo', helper: 'Live ATS' },
+    { label: 'Pending Review', value: pendingReviews, icon: Clock3, tone: 'purple', helper: 'Active queue' },
+    { label: 'Selected', value: selectedCandidates, icon: CheckCircle2, tone: 'green', helper: 'Final decision' },
+  ];
 
   return (
-    <div className="dashboard-container">
-      <div className="dashboard-title-section">
-        <h1 className="dashboard-title">Career Portal</h1>
-        <p className="dashboard-subtitle">Applications from Cloudflare D1</p>
-        <button className="action-btn-small" onClick={fetchData} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <RefreshCw size={14} /> Refresh
-        </button>
-      </div>
-
-      {/* Stats */}
-      <div className="dashboard-grid" style={{ marginBottom: 24 }}>
-        {[
-          { label: 'Open Positions', value: openCount, icon: <Briefcase size={20} />, color: '#FE7A00' },
-          { label: 'Total Applicants', value: candidates.length, icon: <FileText size={20} />, color: '#3B82F6' },
-          { label: 'Pending Review', value: pending, icon: <FileText size={20} />, color: '#A855F7' },
-          { label: 'Selected', value: selected, icon: <FileText size={20} />, color: '#22C55E' },
-        ].map(s => (
-          <div className="metric-card" key={s.label}>
-            <div className="metric-content">
-              <span className="metric-label">{s.label}</span>
-              <div className="metric-value-row">
-                <span className="metric-value">{s.value}</span>
-              </div>
-            </div>
-            <div className="metric-icon-box" style={{ background: s.color + '22', color: s.color }}>{s.icon}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filter bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {departments.map(d => (
-          <button key={d} onClick={() => setFilter(d)}
-            style={{
-              padding: '6px 14px', borderRadius: 20, border: '1px solid',
-              borderColor: filter === d ? '#FE7A00' : '#334155',
-              background: filter === d ? '#FE7A00' : 'transparent',
-              color: filter === d ? '#fff' : '#94a3b8',
-              cursor: 'pointer', fontSize: 13,
-            }}>
-            {d}
-          </button>
-        ))}
-      </div>
-
-      {/* Error / loading */}
-      {error && (
-        <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#f87171', marginBottom: 16 }}>
-          {error} — check Cloudflare D1 credentials in admin .env
+    <div className="career-dashboard-page">
+      <header className="career-dashboard-header">
+        <div>
+          <span className="career-eyebrow">Talent operations</span>
+          <h1>Career Portal</h1>
+          <p>Applications from the live recruitment repository.</p>
         </div>
-      )}
+        <button type="button" onClick={fetchData} disabled={loading}>
+          <RefreshCw size={17} className={loading ? 'career-spin' : ''} />
+          {loading ? 'Refreshing' : 'Refresh'}
+        </button>
+      </header>
 
-      {loading ? (
-        <p style={{ color: '#94a3b8' }}>Loading candidates…</p>
-      ) : shown.length === 0 ? (
-        <p style={{ color: '#94a3b8' }}>No applicants yet{filter !== 'All' ? ` in ${filter}` : ''}.</p>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      <section className="career-metric-grid" aria-label="Career statistics">
+        {metrics.map(({ label, value, icon: Icon, tone, helper }) => (
+          <article className={`career-metric-card tone-${tone}`} key={label}>
+            <div className="career-metric-topline">
+              <span><Icon size={21} /></span>
+              <small>{helper}</small>
+            </div>
+            <p>{label}</p>
+            <strong>{loading ? '—' : value}</strong>
+          </article>
+        ))}
+      </section>
+
+      <section className="career-toolbar">
+        <div className="career-filter-list" aria-label="Filter candidates by department">
+          {departments.map((department) => (
+            <button type="button" key={department} className={department === filter ? 'is-active' : ''} onClick={() => handleFilter(department)}>
+              {department}
+            </button>
+          ))}
+        </div>
+        <label className="career-search">
+          <Search size={17} />
+          <input value={search} onChange={handleSearch} placeholder="Search candidates…" aria-label="Search candidates" />
+        </label>
+      </section>
+
+      {error && <div className="career-error">{error}</div>}
+
+      <section className="career-table-card">
+        <div className="career-table-scroll">
+          <table>
             <thead>
-              <tr style={{ borderBottom: '1px solid #1e293b' }}>
-                {['Name', 'Email', 'Dept / Role', 'City', 'Status', 'Decision', 'Date'].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Dept / Role</th>
+                <th>City</th>
+                <th>Status</th>
+                <th>Decision</th>
+                <th>Date</th>
               </tr>
             </thead>
             <tbody>
-              {shown.map(c => (
-                <tr key={c.id} style={{ borderBottom: '1px solid #0f172a' }}>
-                  <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
-                    {c.first_name} {c.last_name}
-                  </td>
-                  <td style={{ padding: '10px 12px', color: '#94a3b8' }}>{c.email}</td>
-                  <td style={{ padding: '10px 12px' }}>
-                    <span style={{ fontSize: 12, background: '#1e293b', padding: '2px 8px', borderRadius: 4 }}>{c.department}</span>
-                    {c.roles && <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{c.roles}</div>}
-                  </td>
-                  <td style={{ padding: '10px 12px', color: '#94a3b8' }}>{c.city || '—'}</td>
-                  <td style={{ padding: '10px 12px' }}>
-                    <select
-                      value={c.interview_status || 'Pending Setup'}
-                      disabled={updating === c.id}
-                      onChange={e => handleDecision(c.id, 'interview_status', e.target.value)}
-                      style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '4px 8px', fontSize: 12 }}>
-                      {STATUSES.map(s => <option key={s}>{s}</option>)}
-                    </select>
-                  </td>
-                  <td style={{ padding: '10px 12px' }}>
-                    <select
-                      value={c.final_decision || 'Under Review'}
-                      disabled={updating === c.id}
-                      onChange={e => handleDecision(c.id, 'final_decision', e.target.value)}
-                      style={{
-                        background: '#1e293b',
-                        color: (c.final_decision === 'Selected' || c.final_decision === 'Accepted') ? '#22C55E' : c.final_decision === 'Rejected' ? '#f87171' : '#e2e8f0',
-                        border: '1px solid #334155', borderRadius: 4, padding: '4px 8px', fontSize: 12,
-                      }}>
-                      {(DECISIONS.includes(c.final_decision) || !c.final_decision ? DECISIONS : [c.final_decision, ...DECISIONS]).map(d => <option key={d}>{d}</option>)}
-                    </select>
-                  </td>
-                  <td style={{ padding: '10px 12px', color: '#64748b', fontSize: 12, whiteSpace: 'nowrap' }}>
-                    {c.created_at ? new Date(c.created_at).toLocaleDateString('en-IN') : '—'}
-                  </td>
-                </tr>
-              ))}
+              {loading ? (
+                <tr><td colSpan="7" className="career-table-state">Loading candidates…</td></tr>
+              ) : visibleCandidates.length === 0 ? (
+                <tr><td colSpan="7" className="career-table-state">No matching applicants found.</td></tr>
+              ) : visibleCandidates.map((candidate) => {
+                const id = candidate.id ?? candidate.row_index;
+                const decision = candidate.final_decision || 'Under Review';
+                const decisionOptions = DECISIONS.includes(decision) ? DECISIONS : [decision, ...DECISIONS];
+                return (
+                  <tr key={id}>
+                    <td>
+                      <div className="career-candidate-name">
+                        <span>{initials(candidate)}</span>
+                        <strong>{candidateName(candidate)}</strong>
+                      </div>
+                    </td>
+                    <td className="career-email">{candidate.email || '—'}</td>
+                    <td>
+                      <span className="career-department">{candidate.department || 'Unassigned'}</span>
+                      <small>{candidate.roles || 'Role not specified'}</small>
+                    </td>
+                    <td>{candidate.city || '—'}</td>
+                    <td>
+                      <select
+                        className="career-status-select"
+                        value={candidate.interview_status || 'Pending Setup'}
+                        disabled={updating === id}
+                        onChange={(event) => handleDecision(id, 'interview_status', event.target.value)}
+                      >
+                        {STATUSES.map((status) => <option key={status}>{status}</option>)}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        className={`career-decision-select decision-${decision.toLowerCase().replace(/\s+/g, '-')}`}
+                        value={decision}
+                        disabled={updating === id}
+                        onChange={(event) => handleDecision(id, 'final_decision', event.target.value)}
+                      >
+                        {decisionOptions.map((item) => <option key={item}>{item}</option>)}
+                      </select>
+                    </td>
+                    <td className="career-date">
+                      {candidate.created_at || candidate.timestamp
+                        ? new Date(candidate.created_at || candidate.timestamp).toLocaleDateString('en-IN')
+                        : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-      )}
+
+        <footer className="career-table-footer">
+          <p>Showing {firstVisible} to {lastVisible} of {filteredCandidates.length} applications</p>
+          <div>
+            <button type="button" disabled={activePage === 1} onClick={() => setPage((value) => value - 1)} aria-label="Previous page"><ChevronLeft size={18} /></button>
+            <span>{activePage} / {totalPages}</span>
+            <button type="button" disabled={activePage === totalPages} onClick={() => setPage((value) => value + 1)} aria-label="Next page"><ChevronRight size={18} /></button>
+          </div>
+        </footer>
+      </section>
+
+      <button type="button" className="career-new-position" onClick={() => navigate('/career/positions')}>
+        <Plus size={23} />
+        <span>New Position</span>
+      </button>
     </div>
   );
 };

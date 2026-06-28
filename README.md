@@ -48,41 +48,42 @@ In addition to the central dashboard, this repository includes the standalone pu
 - Python 3.12+
 - Node.js 18+
 
-### 1. Backend Setup (Django)
+### First-time Setup
 ```bash
-# 1. Activate virtual environment
-.\venv\Scripts\activate
+# Create the Python virtual environment
+python -m venv venv
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# Install backend, frontend, and root launcher dependencies
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+npm install
+npm --prefix frontend install
 
-# 3. Apply database migrations across routed databases
+# Apply database migrations across routed databases
 python manage.py migrate
 python manage.py migrate --database=turso_db
 
-# 4. Seed sample data (Populates Departments, Team, Events, Speakers)
+# Optional: populate Departments, Team, Events, and Speakers
 python seed_data.py
 
-# 5. Create a superuser account (Required to access User & Permissions Management)
+# Create the administrator account
 python manage.py createsuperuser
-
-# 6. Start backend API server
-python manage.py runserver
 ```
-*The backend REST API will run on `http://127.0.0.1:8000/`.*
 
-### 2. Frontend Setup (React/Vite)
+### Run Everything
+
+From the repository root, start the Django backend and React frontend together:
+
 ```bash
-# 1. Navigate to frontend directory
-cd frontend
-
-# 2. Install dependencies
-npm install
-
-# 3. Start development server
 npm run dev
 ```
-*The SPA dashboard will run on `http://localhost:5173/`.*
+
+The backend REST API normally runs at `http://127.0.0.1:8000/` and the SPA
+dashboard runs at `http://localhost:5173/`. If port 8000 is already occupied,
+the launcher automatically selects the next free port and configures the
+frontend to use it. Press `Ctrl+C` once to stop both services.
+
+For isolated debugging, use `npm run dev:backend` or
+`npm run dev:frontend` from the repository root.
 
 ---
 

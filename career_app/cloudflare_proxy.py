@@ -59,10 +59,12 @@ def _query(sql, params=None):
 
 def get_candidates():
     try:
+        _ensure_certificate_columns()
         return _query(
             """SELECT id, timestamp, department, roles, first_name, last_name, email,
-                      phone, city, linkedin, portfolio, why_join, resume_name,
-                      interview_status, interviewer, rating, final_decision, created_at
+                      phone, city, linkedin, portfolio, why_join, answers, resume_name,
+                      interview_status, interviewer, rating, final_decision,
+                      offer_certificate_id, created_at
                FROM candidates ORDER BY id ASC"""
         )
     except D1Error as exc:
@@ -82,4 +84,24 @@ def update_candidate(row_id, interview_status, interviewer, rating, final_decisi
         return True
     except D1Error as exc:
         logger.error('update_candidate %s failed: %s', row_id, exc)
+        return False
+
+
+def _ensure_certificate_columns():
+    try:
+        _query("ALTER TABLE candidates ADD COLUMN offer_certificate_id TEXT")
+    except D1Error:
+        pass
+
+
+def set_offer_certificate_id(row_id, certificate_id):
+    try:
+        _ensure_certificate_columns()
+        _query(
+            "UPDATE candidates SET offer_certificate_id=?, updated_at=? WHERE id=?",
+            [certificate_id, __import__('datetime').datetime.utcnow().isoformat(), int(row_id)],
+        )
+        return True
+    except D1Error as exc:
+        logger.error('set_offer_certificate_id %s failed: %s', row_id, exc)
         return False

@@ -1,38 +1,32 @@
-import React, { useState, useEffect, useContext } from 'react';
+import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { ThemeContext } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
-import { Globe, Briefcase, Video, Shield } from 'lucide-react';
+import { Globe, Briefcase, Video, Shield, Award } from 'lucide-react';
 import Navbar from './Navbar';
 import Sidebar from './Sidebar';
 
 const AdminLayout = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { theme } = useContext(ThemeContext);
   const { hasAnyPermission, isSuperuser } = usePermissions();
-  const [activePortal, setActivePortal] = useState('tiesverse');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Sync active portal with URL
-  useEffect(() => {
-    if (location.pathname.startsWith('/career')) {
-      setActivePortal('career');
-    } else if (location.pathname.startsWith('/webinar')) {
-      setActivePortal('webinar');
-    } else if (location.pathname.startsWith('/accounts')) {
-      setActivePortal('accounts');
-    } else {
-      setActivePortal('tiesverse');
-    }
-  }, [location]);
+  const activePortal = location.pathname.startsWith('/career')
+    ? 'career'
+    : location.pathname.startsWith('/webinar')
+      ? 'webinar'
+      : location.pathname.startsWith('/certificates')
+        ? 'certificates'
+      : location.pathname.startsWith('/accounts')
+        ? 'accounts'
+        : 'tiesverse';
 
   // When portal changes via navbar, redirect to its first link
   const handlePortalChange = (portal) => {
-    setActivePortal(portal);
     if (portal === 'tiesverse') navigate('/tiesverse/dashboard');
     if (portal === 'career') navigate('/career/dashboard');
     if (portal === 'webinar') navigate('/webinar/dashboard');
+    if (portal === 'certificates') navigate('/certificates/templates');
     if (portal === 'accounts') navigate('/accounts/users');
   };
 
@@ -56,44 +50,29 @@ const AdminLayout = () => {
     { key: 'tiesverse', label: 'Tiesverse', icon: <Globe size={20} />, show: canSeeTiesverse },
     { key: 'career', label: 'Career', icon: <Briefcase size={20} />, show: canSeeCareer },
     { key: 'webinar', label: 'Webinar', icon: <Video size={20} />, show: canSeeWebinar },
+    { key: 'certificates', label: 'Certificates', icon: <Award size={20} />, show: isSuperuser },
     { key: 'accounts', label: 'System', icon: <Shield size={20} />, show: isSuperuser },
   ];
 
   return (
-    <div 
-      className="flex h-screen overflow-hidden"
-      style={{
-        background: 'var(--bg-color)',
-        color: 'var(--text-main)',
-        transition: 'background 0.3s ease, color 0.3s ease',
-      }}
-    >
+    <div className="admin-shell">
       <Sidebar 
         activePortal={activePortal} 
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
       />
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+      <div className="admin-main">
         <Navbar 
           activePortal={activePortal} 
           setActivePortal={handlePortalChange} 
           setIsSidebarOpen={setIsSidebarOpen}
         />
-        <main 
-          className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 pb-28 sm:pb-8"
-          style={{
-            background: 'var(--bg-color)',
-          }}
-        >
+        <main className="admin-page custom-scrollbar">
           <Outlet />
         </main>
 
         {/* Mobile Bottom Navigation Bar */}
-        <div className="sm:hidden absolute bottom-0 left-0 right-0 border-t flex justify-around items-center h-[70px] z-40"
-             style={{ 
-               background: 'var(--surface)',
-               borderColor: 'var(--border)'
-             }}>
+        <div className="portal-mobile-nav">
           {portalButtons.filter(p => p.show).map(portal => (
             <button 
               key={portal.key}

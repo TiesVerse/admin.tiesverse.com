@@ -1,14 +1,16 @@
-import React, { useState, useContext } from 'react';
-import { AuthContext } from '../context/AuthContext';
+import { useContext, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, User } from 'lucide-react';
+import { Eye, EyeOff, LoaderCircle, Lock, User } from 'lucide-react';
+import { AuthContext } from '../context/AuthContext';
+import './Login.css';
 
 const Login = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
-  // Shown once when the user was redirected here by the idle auto-logout.
-  const [notice, setNotice] = useState(() => {
+  const [notice] = useState(() => {
     if (sessionStorage.getItem('sessionExpired') === 'idle') {
       sessionStorage.removeItem('sessionExpired');
       return 'You were signed out due to inactivity. Please log in again.';
@@ -18,83 +20,84 @@ const Login = () => {
   const { loginUser } = useContext(AuthContext);
   const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError(null);
+    setSubmitting(true);
     const result = await loginUser(username, password);
     if (result.success) {
       navigate('/');
-    } else {
-      setError(result.error);
+      return;
     }
+    setError(result.error);
+    setSubmitting(false);
   };
 
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      height: '100vh',
-      background: 'var(--bg-color)',
-    }}>
-      <div className="card" style={{ width: '400px', padding: '2rem' }}>
-        <h2 style={{ textAlign: 'center', marginBottom: '1.5rem', color: 'var(--primary)' }}>
-          Admin Control Center
-        </h2>
-        {notice && (
-          <div style={{ background: '#3B82F620', color: '#3B82F6', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', textAlign: 'center' }}>
-            {notice}
+    <main className="login-page">
+      <div className="login-ambient" aria-hidden="true" />
+      <section className="login-shell" aria-labelledby="login-title">
+        <header className="login-brand">
+          <img src="/favicon.svg" alt="Tiesverse logo" />
+          <h1 id="login-title">Tiesverse Portal</h1>
+        </header>
+
+        <div className="login-card">
+          <div className="login-card-heading">
+            <h2>Admin Control Center</h2>
+            <p>Please authenticate to access management</p>
           </div>
-        )}
-        {error && (
-          <div style={{ background: '#EF444420', color: '#EF4444', padding: '0.75rem', borderRadius: '8px', marginBottom: '1rem', textAlign: 'center' }}>
-            {error}
-          </div>
-        )}
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div style={{ position: 'relative' }}>
-            <User size={18} style={{ position: 'absolute', top: '10px', left: '10px', color: 'var(--text-muted)' }} />
-            <input 
-              type="text" 
-              placeholder="Username" 
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.5rem 0.5rem 0.5rem 2.5rem',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                background: 'var(--surface-hover)',
-                color: 'white',
-                outline: 'none'
-              }}
-              required
-            />
-          </div>
-          <div style={{ position: 'relative' }}>
-            <Lock size={18} style={{ position: 'absolute', top: '10px', left: '10px', color: 'var(--text-muted)' }} />
-            <input 
-              type="password" 
-              placeholder="Password" 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.5rem 0.5rem 0.5rem 2.5rem',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                background: 'var(--surface-hover)',
-                color: 'white',
-                outline: 'none'
-              }}
-              required
-            />
-          </div>
-          <button type="submit" className="btn btn-primary" style={{ justifyContent: 'center', marginTop: '1rem' }}>
-            Log In
-          </button>
-        </form>
-      </div>
-    </div>
+
+          {notice && <div className="login-message is-notice">{notice}</div>}
+          {error && <div className="login-message is-error" role="alert">{error}</div>}
+
+          <form className="login-form" onSubmit={handleSubmit}>
+            <label className="login-field">
+              <span>Username or Email</span>
+              <div className="login-input">
+                <User size={19} aria-hidden="true" />
+                <input
+                  type="text"
+                  autoComplete="username"
+                  placeholder="ahan"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  required
+                />
+              </div>
+            </label>
+
+            <label className="login-field">
+              <span>Password</span>
+              <div className="login-input">
+                <Lock size={19} aria-hidden="true" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  className="login-password-toggle"
+                  onClick={() => setShowPassword((current) => !current)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={19} /> : <Eye size={19} />}
+                </button>
+              </div>
+            </label>
+
+            <button className="login-submit" type="submit" disabled={submitting}>
+              {submitting && <LoaderCircle size={19} className="login-spinner" aria-hidden="true" />}
+              {submitting ? 'Authenticating…' : 'Log In'}
+            </button>
+          </form>
+        </div>
+      </section>
+    </main>
   );
 };
 

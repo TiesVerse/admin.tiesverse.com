@@ -25,9 +25,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-ckk$((ll8=s^xa^429nn_*v5(yv_*l974yni802g4rki%j#h&$')
+SECRET_KEY = (
+    os.environ.get('SECRET_KEY')
+    or os.environ.get('JWT_SECRET')
+    or 'django-insecure-ckk$((ll8=s^xa^429nn_*v5(yv_*l974yni802g4rki%j#h&$'
+)
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() != 'false'
+
+CERTIFICATE_GENERATOR_API_URL = os.environ.get(
+    'CERTIFICATE_GENERATOR_API_URL',
+    'https://auto-document-generator-backend.onrender.com',
+).rstrip('/')
 
 _allowed = os.environ.get('ALLOWED_HOSTS', '')
 ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()] or ['localhost', '127.0.0.1']
@@ -203,3 +212,6 @@ OFFER_EMAIL_ENABLED = os.environ.get('OFFER_EMAIL_ENABLED', 'False').lower() == 
 RAZORPAY_KEY_ID = os.environ.get('RAZORPAY_KEY_ID', '')
 RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET', '')
 RAZORPAY_WEBHOOK_SECRET = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '')
+
+# Keep implicit primary keys aligned with the existing migrations.
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import {
     getDepartments, createDepartment, updateDepartment, deleteDepartment,
@@ -7,9 +8,12 @@ import {
     getEventRegistrations, createEventRegistration, updateEventRegistration, deleteEventRegistration,
     getSettings, updateSetting, uploadImage, listCloudinaryImages
 } from '../../apiClient';
-import { Plus, Edit2, Trash2, X, Sparkles, BookOpen, PlaySquare, Users, Video, Calendar, ExternalLink, FileText, Briefcase } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Sparkles, BookOpen, Users, FileText, BarChart3, CalendarDays } from 'lucide-react';
 import ImageUploadField from '../../components/ImageUploadField';
 import { resolveImg } from '../../utils/img';
+import './ArticlesReports.css';
+import './WebinarsWorkshops.css';
+import './SpeakersManagement.css';
 
 // ===== SHARED STYLES =====
 const inputStyle = {
@@ -70,13 +74,14 @@ const TAB_CONFIG = {
         imageField: 'photo_url', defaultForm: { featured: false },
     },
     event_registrations: {
-        title: 'Workshops', subtitle: 'Workshop / open-registration listings (Supabase: workshops).', icon: <FileText size={20} />, itemLabel: 'Workshop',
+        title: 'Webinars & Workshops', subtitle: 'Manage webinar and workshop listings shown on the public experience.', icon: <FileText size={20} />, itemLabel: 'Listing',
         fetchFn: getEventRegistrations, createFn: createEventRegistration, updateFn: updateEventRegistration, deleteFn: deleteEventRegistration,
-        imageField: 'cover_url', defaultForm: { status: 'upcoming' },
+        imageField: 'cover_url', defaultForm: { kind: 'workshop', status: 'upcoming', price: 0 },
     },
 };
 
 const Admin = ({ tab = 'articles' }) => {
+    const navigate = useNavigate();
     const { user } = useContext(AuthContext);
     const config = TAB_CONFIG[tab];
 
@@ -160,29 +165,30 @@ const Admin = ({ tab = 'articles' }) => {
     // ===== IMAGE UPLOAD (Cloudinary) =====
     // Upload a picked file → store the returned secure_url in the active tab's
     // image field (config.imageField). Used by ImageUploadField.
-    const handleImageFile = async (file) => {
+    const handleImageFile = async (file, fieldName = config.imageField) => {
         setUploadingImage(true);
         const res = await uploadImage(file);
         setUploadingImage(false);
         if (res?.secure_url) {
-            setFormData(prev => ({ ...prev, [config.imageField]: res.secure_url }));
-            setPreviewUrl(res.secure_url);
+            setFormData(prev => ({ ...prev, [fieldName]: res.secure_url }));
+            if (fieldName === config.imageField) setPreviewUrl(res.secure_url);
             showNotice('Image uploaded');
         } else {
             showNotice(res?.error || 'Image upload failed', 'error');
         }
     };
 
-    const openLibrary = async () => {
-        setCloudinaryPicker({ open: true, images: [], loading: true });
+    const openLibrary = async (fieldName = config.imageField) => {
+        setCloudinaryPicker({ open: true, images: [], loading: true, targetField: fieldName });
         const res = await listCloudinaryImages();
-        setCloudinaryPicker({ open: true, images: res?.images || [], loading: false });
+        setCloudinaryPicker({ open: true, images: res?.images || [], loading: false, targetField: fieldName });
     };
 
     // Picks one image from the library into the active tab's image field.
     const selectCloudinaryImage = (url) => {
-        setFormData(prev => ({ ...prev, [config.imageField]: url }));
-        setPreviewUrl(url);
+        const targetField = cloudinaryPicker.targetField || config.imageField;
+        setFormData(prev => ({ ...prev, [targetField]: url }));
+        if (targetField === config.imageField) setPreviewUrl(url);
         setCloudinaryPicker({ open: false, images: [], loading: false });
         setMultiPickerSelected([]);
     };
@@ -306,13 +312,31 @@ const Admin = ({ tab = 'articles' }) => {
 
         if (tab === 'event_registrations') return (   // EventRegistration model -> Supabase 'workshops'
             <>
-                <FormField label="Workshop Title *" name="title" value={formData.title} onChange={handleInputChange} placeholder="e.g. Newsroom Masterclass" required />
-                <div><FieldLabel>Description</FieldLabel><textarea name="description" value={formData.description || ''} onChange={handleInputChange} style={{ ...inputStyle, minHeight: '60px', resize: 'vertical' }} placeholder="What the workshop covers..." /></div>
+                <div>
+                    <FieldLabel>Content Type</FieldLabel>
+                    <select name="kind" value={formData.kind || 'workshop'} onChange={handleInputChange} style={selectStyle}>
+                        <option value="webinar">Webinar</option>
+                        <option value="workshop">Workshop</option>
+                    </select>
+                </div>
+                <FormField label="Title *" name="title" value={formData.title} onChange={handleInputChange} placeholder="e.g. Newsroom Masterclass" required />
+                <div><FieldLabel>Description</FieldLabel><textarea name="description" value={formData.description || ''} onChange={handleInputChange} style={{ ...inputStyle, minHeight: '60px', resize: 'vertical' }} placeholder="What attendees will learn..." /></div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                     <FormField label="Date" name="date" value={formData.date} onChange={handleInputChange} placeholder="e.g. Jul 12, 2026" />
                     <FormField label="Time / TZ" name="time_tz" value={formData.time_tz} onChange={handleInputChange} placeholder="e.g. 4:00 PM IST" />
                 </div>
-                <FormField label="Host" name="host" value={formData.host} onChange={handleInputChange} placeholder="e.g. Nimble" />
+                <FormField label="Host Name" name="host" value={formData.host} onChange={handleInputChange} placeholder="e.g. Ahan Sardar" />
+                <FormField label="Price (₹)" name="price" value={formData.price} onChange={handleInputChange} placeholder="0 for free" type="number" />
+                <ImageUploadField
+                    label="Host Image URL"
+                    name="host_image_url"
+                    value={formData.host_image_url}
+                    onChange={handleInputChange}
+                    placeholder="https://…"
+                    onFile={(file) => handleImageFile(file, 'host_image_url')}
+                    onBrowse={() => openLibrary('host_image_url')}
+                    uploading={uploadingImage}
+                />
                 <ImageUploadField label="Cover Image URL" name="cover_url" value={formData.cover_url} onChange={handleInputChange} placeholder="https://…" onFile={handleImageFile} onBrowse={openLibrary} uploading={uploadingImage} />
                 <FormField label="Registration URL" name="register_url" value={formData.register_url} onChange={handleInputChange} placeholder="https://…" />
                 <div>
@@ -332,8 +356,146 @@ const Admin = ({ tab = 'articles' }) => {
     const renderItemCard = (item) => {
         const thumb = config.imageField ? item[config.imageField] : null;
         const title = item.title || item.name || 'Untitled';
-        const subtitle = item.role || item.cat || item.host || item.org || item.department || item.kind || '';
+        const subtitle = tab === 'event_registrations'
+            ? (item.kind || 'workshop')
+            : (item.role || item.cat || item.host || item.org || item.department || item.kind || '');
         const date = item.date || '';
+
+        if (tab === 'departments') {
+            const editorialType = item.kind || 'Article';
+            return (
+                <article className="article-editorial-card" key={item.id}>
+                    <div className="article-card-media">
+                        {thumb ? (
+                            <img src={resolveImg(thumb)} alt={title} />
+                        ) : (
+                            <div className="article-card-image-placeholder"><BookOpen size={34} /></div>
+                        )}
+                        <div className="article-card-badges">
+                            <span>{item.cat || item.topic || editorialType}</span>
+                            {item.read_time && <span>{item.read_time}</span>}
+                        </div>
+                        {!item.published && <span className="article-draft-badge">Draft</span>}
+                    </div>
+                    <div className="article-card-body">
+                        <div>
+                            <p className="article-kind">{editorialType}</p>
+                            <h3>{title}</h3>
+                            <p className="article-summary">{item.dek || 'No editorial summary has been added yet.'}</p>
+                        </div>
+                        <div className="article-card-footer">
+                            <div className="article-meta-author">
+                                <span>{editorialType.slice(0, 2).toUpperCase()}</span>
+                                <div>
+                                    <strong>{item.featured ? 'Featured content' : 'Editorial desk'}</strong>
+                                    <small>{date || (item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recently updated')}</small>
+                                </div>
+                            </div>
+                            <div className="article-card-actions">
+                                <button type="button" onClick={() => openEditModal(item)} title={`Edit ${title}`}><Edit2 size={16} /></button>
+                                <button type="button" className="is-danger" onClick={() => setDeleteModal({ open: true, id: item.id, title })} title={`Delete ${title}`}><Trash2 size={16} /></button>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+            );
+        }
+
+        if (tab === 'event_speakers') {
+            return (
+                <article className="speaker-profile-card" key={item.id}>
+                    <div className="speaker-profile-media">
+                        {thumb ? (
+                            <img src={resolveImg(thumb)} alt={title} />
+                        ) : (
+                            <div className="speaker-profile-placeholder">
+                                <span>{title.trim().slice(0, 2).toUpperCase()}</span>
+                            </div>
+                        )}
+                        <div className="speaker-profile-overlay" />
+                        <span className="speaker-role-badge">{item.role || 'Guest Speaker'}</span>
+                        {item.featured && <span className="speaker-featured-badge">Featured</span>}
+                    </div>
+
+                    <div className="speaker-profile-body">
+                        <div>
+                            <h3>{title}</h3>
+                            <p>{item.org || item.quote || 'Tiesverse speaker and guest contributor'}</p>
+                        </div>
+                        <div className="speaker-profile-actions">
+                            <button type="button" onClick={() => openEditModal(item)} title={`Edit ${title}`}>
+                                <Edit2 size={19} />
+                            </button>
+                            <button type="button" className="is-danger" onClick={() => setDeleteModal({ open: true, id: item.id, title })} title={`Delete ${title}`}>
+                                <Trash2 size={19} />
+                            </button>
+                        </div>
+                    </div>
+                </article>
+            );
+        }
+
+        if (tab === 'event_registrations') {
+            const kind = item.kind || 'workshop';
+            const isUpcoming = item.status !== 'past';
+            const hostName = item.host || 'Tiesverse';
+            return (
+                <article className={`webinar-listing-card ${thumb ? 'has-cover' : ''}`} key={item.id}>
+                    {thumb && (
+                        <div className="webinar-listing-cover">
+                            <img src={resolveImg(thumb)} alt={title} />
+                            <span className={`webinar-kind-badge is-${kind}`}>{kind}</span>
+                        </div>
+                    )}
+
+                    <div className="webinar-listing-body">
+                        <div className="webinar-listing-topline">
+                            {!thumb && <span className={`webinar-kind-badge is-${kind}`}>{kind}</span>}
+                            <div className="webinar-listing-state">
+                                <strong>{Number(item.price) > 0 ? `₹${Number(item.price).toLocaleString('en-IN')}` : 'Free'}</strong>
+                                <span className={`webinar-status-badge ${isUpcoming ? 'is-upcoming' : 'is-past'}`}>
+                                    {isUpcoming ? 'upcoming' : 'past'}
+                                </span>
+                            </div>
+                        </div>
+
+                        <h3>{title}</h3>
+
+                        <div className="webinar-host-row">
+                            {item.host_image_url ? (
+                                <img src={resolveImg(item.host_image_url)} alt={hostName} />
+                            ) : (
+                                <span>{hostName.trim().charAt(0).toUpperCase()}</span>
+                            )}
+                            <p>Hosted by <strong>{hostName}</strong></p>
+                        </div>
+
+                        <div className="webinar-date-row">
+                            <CalendarDays size={18} />
+                            <span>{date || 'Date to be announced'}{item.time_tz ? ` · ${item.time_tz}` : ''}</span>
+                        </div>
+
+                        <p className="webinar-listing-description">
+                            {item.description || 'No description has been added for this listing yet.'}
+                        </p>
+
+                        <footer className="webinar-listing-actions">
+                            <div>
+                                <button type="button" onClick={() => openEditModal(item)} title={`Edit ${title}`}>
+                                    <Edit2 size={19} />
+                                </button>
+                                <button type="button" className="is-danger" onClick={() => setDeleteModal({ open: true, id: item.id, title })} title={`Delete ${title}`}>
+                                    <Trash2 size={19} />
+                                </button>
+                            </div>
+                            <button type="button" className="webinar-manage-button" onClick={() => navigate('/webinar/registrations')}>
+                                Manage Entries
+                            </button>
+                        </footer>
+                    </div>
+                </article>
+            );
+        }
 
         return (
             <div
@@ -374,6 +536,18 @@ const Admin = ({ tab = 'articles' }) => {
                         }}>
                             {title}
                         </h3>
+                        {tab === 'event_registrations' && item.host && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                                {item.host_image_url ? (
+                                    <img src={resolveImg(item.host_image_url)} alt={item.host} style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.12)' }} />
+                                ) : (
+                                    <span style={{ width: '28px', height: '28px', borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'color-mix(in srgb, var(--primary) 15%, transparent)', color: 'var(--primary)', fontSize: '0.6875rem', fontWeight: 800 }}>
+                                        {item.host.trim().charAt(0).toUpperCase()}
+                                    </span>
+                                )}
+                                <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.55)' }}>Hosted by {item.host}</span>
+                            </div>
+                        )}
                         {date && <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.3)', marginTop: '6px' }}>{date}</p>}
                         {item.excerpt && <p style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.3)', marginTop: '6px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.5 }}>{item.excerpt}</p>}
                         {item.description && !item.excerpt && <p style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.3)', marginTop: '6px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.5 }}>{item.description}</p>}
@@ -412,11 +586,8 @@ const Admin = ({ tab = 'articles' }) => {
 
     // ===== SETTINGS BAR =====
     const renderSettingsBar = () => {
+        if (tab === 'departments') return null;
         const settingsMap = {
-            articles: [
-                { key: 'article_display_limit_pc', label: 'PC Limit', val: siteSettings.article_display_limit_pc || 3 },
-                { key: 'article_display_limit_mobile', label: 'Mobile Limit', val: siteSettings.article_display_limit_mobile || 3 },
-            ],
             youtube_videos: [
                 { key: 'youtube_display_limit_pc', label: 'PC Limit', val: siteSettings.youtube_display_limit_pc || 3 },
                 { key: 'youtube_display_limit_mobile', label: 'Mobile Limit', val: siteSettings.youtube_display_limit_mobile || 2 },
@@ -452,29 +623,24 @@ const Admin = ({ tab = 'articles' }) => {
     };
 
     const filteredItems = items;
+    const publishedCount = items.filter(item => item.published !== false).length;
+    const reportCount = items.filter(item => ['Report', 'Brief', 'Analysis'].includes(item.kind)).length;
+    const featuredCount = items.filter(item => item.featured).length;
+    const publicationRate = items.length ? Math.round((publishedCount / items.length) * 100) : 0;
 
     // ===== MAIN RENDER =====
     return (
-        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+        <div className={`content-admin-page ${tab === 'departments' ? 'articles-reports-page' : ''} ${tab === 'event_registrations' ? 'webinars-workshops-page' : ''} ${tab === 'event_speakers' ? 'speakers-management-page' : ''}`}>
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px', flexWrap: 'wrap', gap: '16px' }}>
+            <div className="content-admin-header">
                 <div>
-                    <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#fff', letterSpacing: '-0.02em', margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        {config.icon} {config.title}
-                    </h1>
-                    <p style={{ fontSize: '0.875rem', color: 'rgba(255,255,255,0.4)', marginTop: '6px' }}>{config.subtitle}</p>
+                    <span className="content-admin-eyebrow">{tab === 'departments' ? 'Editorial library' : 'Content management'}</span>
+                    <h1>{config.title}</h1>
+                    <p>{tab === 'departments'
+                        ? 'Manage newsroom content, research articles, and editorial reports across the portal.'
+                        : config.subtitle}</p>
                 </div>
-                <button onClick={openCreateModal}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '8px',
-                        padding: '12px 24px', background: 'var(--primary)',
-                        color: '#fff', border: 'none', borderRadius: '12px', fontSize: '0.875rem',
-                        fontWeight: 700, cursor: 'pointer', letterSpacing: '0.02em',
-                        boxShadow: '0 8px 20px color-mix(in srgb, var(--primary) 30%, transparent)', transition: 'all 0.3s ease',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 12px 28px color-mix(in srgb, var(--primary) 40%, transparent)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 8px 20px color-mix(in srgb, var(--primary) 30%, transparent)'; }}
-                >
+                <button className="content-create-button" onClick={openCreateModal}>
                     <Plus size={18} /> Add New {config.itemLabel}
                 </button>
             </div>
@@ -499,26 +665,51 @@ const Admin = ({ tab = 'articles' }) => {
 
             {/* Content Grid */}
             {loading && items.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '80px 0', color: 'rgba(255,255,255,0.3)' }}>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600, letterSpacing: '0.1em' }}>LOADING...</div>
+                <div className="content-loading-state">
+                    <div>Loading content…</div>
                 </div>
             ) : filteredItems.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '80px 0', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    {config.icon && React.cloneElement(config.icon, { size: 40, style: { color: 'rgba(255,255,255,0.15)', marginBottom: '12px' } })}
-                    <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.875rem', fontWeight: 600 }}>No {config.itemLabel.toLowerCase()}s yet</p>
-                    <p style={{ color: 'rgba(255,255,255,0.2)', fontSize: '0.8125rem', marginTop: '4px' }}>Click "Add New {config.itemLabel}" to get started.</p>
+                <div className="content-empty-state">
+                    {config.icon && React.cloneElement(config.icon, { size: 40 })}
+                    <p>No {config.itemLabel.toLowerCase()}s yet</p>
+                    <span>Click “Add New {config.itemLabel}” to get started.</span>
                 </div>
             ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+                <div className="content-card-grid">
                     {filteredItems.map(item => renderItemCard(item))}
+                    {tab === 'departments' && (
+                        <button type="button" className="article-new-card" onClick={openCreateModal}>
+                            <span><Plus size={30} /></span>
+                            <strong>New Article</strong>
+                            <p>Draft a new editorial piece or research report.</p>
+                        </button>
+                    )}
                 </div>
+            )}
+
+            {tab === 'departments' && !loading && items.length > 0 && (
+                <section className="article-overview">
+                    <div className="article-overview-heading">
+                        <span><BarChart3 size={31} /></span>
+                        <div>
+                            <h2>Editorial overview</h2>
+                            <p>{items.length} pieces of newsroom and research content managed across the portal.</p>
+                        </div>
+                    </div>
+                    <div className="article-overview-metrics">
+                        <div><small>Published</small><strong>{publishedCount}</strong></div>
+                        <div><small>Reports</small><strong>{reportCount}</strong></div>
+                        <div><small>Featured</small><strong>{featuredCount}</strong></div>
+                        <div><small>Publication</small><strong>{publicationRate}%</strong></div>
+                    </div>
+                </section>
             )}
 
             {/* ===== CREATE / EDIT MODAL ===== */}
             {formModalOpen && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}
+                <div className="content-modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}
                     onClick={(e) => { if (e.target === e.currentTarget) closeFormModal(); }}>
-                    <div style={{
+                    <div className="content-modal-panel" style={{
                         background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px',
                         width: '100%', maxWidth: '560px', maxHeight: '90vh', overflowY: 'auto', padding: '32px',
                         boxShadow: '0 40px 80px rgba(0,0,0,0.6)', animation: 'modalSlideUp 0.3s ease',
@@ -558,9 +749,9 @@ const Admin = ({ tab = 'articles' }) => {
 
             {/* ===== DELETE MODAL ===== */}
             {deleteModal.open && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}
+                <div className="content-modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}
                     onClick={(e) => { if (e.target === e.currentTarget) setDeleteModal({ open: false, id: null, title: '' }); }}>
-                    <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', maxWidth: '420px', width: '100%', padding: '32px', boxShadow: '0 40px 80px rgba(0,0,0,0.6)', animation: 'modalSlideUp 0.3s ease' }}>
+                    <div className="content-modal-panel" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', maxWidth: '420px', width: '100%', padding: '32px', boxShadow: '0 40px 80px rgba(0,0,0,0.6)', animation: 'modalSlideUp 0.3s ease' }}>
                         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
                             <div style={{ width: '56px', height: '56px', borderRadius: '16px', margin: '0 auto 16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <Trash2 size={24} style={{ color: '#EF4444' }} />
@@ -580,8 +771,8 @@ const Admin = ({ tab = 'articles' }) => {
 
             {/* ===== SIZE WARNING MODAL ===== */}
             {sizeWarning.open && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
-                    <div style={{ background: '#111', border: '1px solid rgba(255,107,0,0.3)', borderRadius: '20px', maxWidth: '420px', width: '100%', padding: '32px', boxShadow: '0 40px 80px rgba(0,0,0,0.6)' }}>
+                <div className="app-modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
+                    <div className="app-modal app-confirm-modal" style={{ background: '#111', border: '1px solid rgba(255,107,0,0.3)', borderRadius: '20px', maxWidth: '420px', width: '100%', padding: '32px', boxShadow: '0 40px 80px rgba(0,0,0,0.6)' }}>
                         <h3 style={{ color: 'var(--primary)', fontWeight: 800, marginBottom: '16px', fontSize: '1rem' }}>⚠️ Aspect Ratio Mismatch</h3>
                         <div style={{ background: 'color-mix(in srgb, var(--primary) 6%, transparent)', borderRadius: '10px', padding: '14px', marginBottom: '16px', fontSize: '0.8125rem', lineHeight: 1.8 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}><span style={{ color: 'rgba(255,255,255,0.5)' }}>Expected:</span><strong style={{ color: '#fff' }}>{sizeWarning.expectedRatio}</strong></div>
@@ -598,8 +789,8 @@ const Admin = ({ tab = 'articles' }) => {
 
             {/* ===== CLOUDINARY PICKER MODAL ===== */}
             {cloudinaryPicker.open && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
-                    <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', maxWidth: '820px', width: '92vw', maxHeight: '82vh', display: 'flex', flexDirection: 'column', padding: '24px', boxShadow: '0 40px 80px rgba(0,0,0,0.6)' }}>
+                <div className="app-modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
+                    <div className="app-modal app-modal-wide" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', maxWidth: '820px', width: '92vw', maxHeight: '82vh', display: 'flex', flexDirection: 'column', padding: '24px', boxShadow: '0 40px 80px rgba(0,0,0,0.6)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexShrink: 0 }}>
                             <div>
                                 <h3 style={{ margin: 0, letterSpacing: '0.1em', fontSize: '0.8125rem', fontWeight: 800, color: '#fff' }}>CLOUDINARY LIBRARY</h3>

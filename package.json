@@ -1,0 +1,12 @@
+{
+  "name": "tiesverse-admin",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:backend": "venv\\Scripts\\python.exe manage.py runserver 127.0.0.1:8000",
+    "dev:frontend": "npm --prefix frontend run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

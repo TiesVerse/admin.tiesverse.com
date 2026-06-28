@@ -125,12 +125,12 @@ export function PositionTracker() {
   );
 }
 
-// ── Enrollment Tracker ────────────────────────────────────────────────────────
+// ── Application Tracker ───────────────────────────────────────────────────────
 
 const DECISION_OPTIONS = ['Under Review', 'Shortlisted', 'Selected', 'Rejected'];
 const DECISION_COLORS = { Selected: '#10B981', Accepted: '#10B981', Rejected: '#EF4444', Shortlisted: '#F59E0B', 'Under Review': '#9CA3AF' };
 
-export function EnrollmentTracker() {
+export function ApplicationTracker() {
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -165,7 +165,7 @@ export function EnrollmentTracker() {
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 className="page-title">Enrollment Tracker</h1>
+          <h1 className="page-title">Application Tracker</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>All applicants from the public career forms.</p>
         </div>
         <select value={filter} onChange={(e) => setFilter(e.target.value)}
@@ -324,9 +324,9 @@ export function OfferLetter() {
       </div>
 
       {modal && (
-        <div onClick={() => setModal(null)}
+        <div className="app-modal-overlay" onClick={() => setModal(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: '440px', maxWidth: '92vw', padding: '1.5rem' }}>
+          <div className="card app-modal offer-modal" onClick={(e) => e.stopPropagation()} style={{ width: '440px', maxWidth: '92vw', padding: '1.5rem' }}>
             <h2 style={{ margin: '0 0 0.25rem' }}>Offer — {fullName(modal)}</h2>
             <p style={{ margin: '0 0 0.5rem', fontSize: '13px', color: 'var(--text-muted)' }}>{modal.email}</p>
             <label style={olLabel}>Role / Title</label>
@@ -352,7 +352,7 @@ export function OfferLetter() {
 
 // ── Form Gates ──────────────────────────────────────────────────────────────
 // Open/close the public application forms. Gates are a category→role hierarchy
-// stored in Cloudflare D1; closing a category cascades to its roles.
+// stored in the hosted ATS; closing a category cascades to its roles.
 const GATE_GROUPS = [
   { cat: 'Tech', roles: ['tech_roles'] },
   { cat: 'Content', roles: ['content_editor', 'content_writer_upsc', 'upsc_strategist', 'graphic_designer_canva', 'uiux_designer'] },
@@ -433,7 +433,7 @@ export function FormGates() {
 }
 
 export function CareerAdmin({ tab }) {
-  if (tab === 'enrollments') return <EnrollmentTracker />;
+  if (tab === 'applications' || tab === 'enrollments') return <ApplicationTracker />;
   if (tab === 'offers')      return <OfferLetter />;
   if (tab === 'form_gates')  return <FormGates />;
   return <PositionTracker />;

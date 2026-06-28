@@ -1,9 +1,11 @@
 import datetime
 import json
 import logging
+from decimal import Decimal, InvalidOperation
 
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from django.utils.text import slugify
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import AllowAny, DjangoModelPermissions, IsAuthenticated
@@ -27,6 +29,299 @@ class StaffModelPermissions(DjangoModelPermissions):
         'PATCH': ['%(app_label)s.change_%(model_name)s'],
         'DELETE': ['%(app_label)s.delete_%(model_name)s'],
     }
+
+
+def _utcnow():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _parse_coupon_datetime(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+        return parsed.astimezone(datetime.timezone.utc)
+    except ValueError:
+        return None
+
+
+def _coupon_by_code(code):
+    rows = turso_client.execute(
+        'SELECT * FROM coupons WHERE UPPER(code)=UPPER(:code) LIMIT 1',
+        {'code': str(code or '').strip()},
+    )
+    return rows[0] if rows else None
+
+
+def _resolve_hosted_price(event_id, event_title, event_type):
+    """Read the authoritative INR price from Supabase, never from the browser."""
+    from tiesverse_app import supabase_sync
+
+    table = 'workshops' if str(event_type).lower() == 'webinar' else 'events'
+    client = supabase_sync.get_client()
+    if not client:
+        return None
+    try:
+        rows = (
+            client.table(table)
+            .select('title,price')
+            .eq('title', str(event_title or '').strip())
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning('Could not resolve hosted price from %s: %s', table, exc)
+        return None
+    if not rows:
+        return None
+    row = rows[0]
+    if slugify(str(row.get('title') or '')).lower() != str(event_id or '').strip().lower():
+        return None
+    try:
+        return max(Decimal(str(row.get('price') or 0)), Decimal('0'))
+    except InvalidOperation:
+        return None
+
+
+def _evaluate_coupon(code, event_id, event_title, event_type, base_amount):
+    coupon = _coupon_by_code(code)
+    if not coupon:
+        return None, 'Coupon code was not found.'
+
+    normalized_type = str(event_type or 'event').strip().lower()
+    request_keys = {
+        str(event_id or '').strip().lower(),
+        slugify(str(event_title or '')).lower(),
+    }
+    if str(coupon.get('event_type') or '').lower() != normalized_type \
+            or str(coupon.get('event_id') or '').lower() not in request_keys:
+        return None, 'This coupon is not valid for the selected event or webinar.'
+
+    if str(coupon.get('active') or '0') != '1':
+        return None, 'This coupon has been paused.'
+
+    now = _utcnow()
+    starts_at = _parse_coupon_datetime(coupon.get('starts_at'))
+    expires_at = _parse_coupon_datetime(coupon.get('expires_at'))
+    if starts_at and now < starts_at:
+        return None, 'This coupon is not active yet.'
+    if expires_at and now >= expires_at:
+        return None, 'This coupon has expired.'
+
+    max_redemptions = int(coupon['max_redemptions']) if coupon.get('max_redemptions') not in (None, '') else None
+    redeemed_count = int(coupon.get('redeemed_count') or 0)
+    if max_redemptions is not None and redeemed_count >= max_redemptions:
+        return None, 'This coupon has reached its registration limit.'
+
+    try:
+        base = max(Decimal(str(base_amount)), Decimal('0'))
+        value = max(Decimal(str(coupon.get('discount_value') or 0)), Decimal('0'))
+    except InvalidOperation:
+        return None, 'Coupon pricing is invalid.'
+
+    if coupon.get('discount_type') == 'percent':
+        discount = base * min(value, Decimal('100')) / Decimal('100')
+    else:
+        discount = min(value, base)
+    final_amount = max(base - discount, Decimal('0'))
+
+    return {
+        **coupon,
+        'discount_amount': discount.quantize(Decimal('0.01')),
+        'final_amount': final_amount.quantize(Decimal('0.01')),
+    }, None
+
+
+def _reserve_coupon(coupon_id):
+    rows = turso_client.execute(
+        """UPDATE coupons
+           SET redeemed_count=redeemed_count+1, updated_at=:updated_at
+           WHERE id=:id AND active=1
+             AND (max_redemptions IS NULL OR redeemed_count < max_redemptions)
+           RETURNING id, redeemed_count""",
+        {'id': coupon_id, 'updated_at': _utcnow().isoformat()},
+    )
+    return bool(rows)
+
+
+def _release_coupon(code):
+    if not code:
+        return
+    turso_client.execute(
+        """UPDATE coupons
+           SET redeemed_count=CASE WHEN redeemed_count > 0 THEN redeemed_count-1 ELSE 0 END,
+               updated_at=:updated_at
+           WHERE UPPER(code)=UPPER(:code)""",
+        {'code': code, 'updated_at': _utcnow().isoformat()},
+    )
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def coupons(request):
+    """List or create event-specific coupons in hosted Turso."""
+    turso_client.setup_tables()
+    if request.method == 'GET':
+        rows = turso_client.execute('SELECT * FROM coupons ORDER BY created_at DESC')
+        return Response({'rows': rows, 'count': len(rows)})
+
+    data = request.data
+    code = str(data.get('code') or '').strip().upper()
+    event_id = str(data.get('event_id') or '').strip()
+    event_title = str(data.get('event_title') or '').strip()
+    event_type = str(data.get('event_type') or '').strip().lower()
+    discount_type = str(data.get('discount_type') or 'percent').strip().lower()
+    try:
+        discount_value = Decimal(str(data.get('discount_value')))
+    except (InvalidOperation, TypeError):
+        return Response({'error': 'Enter a valid discount value.'}, status=400)
+
+    if not code or not event_id or not event_title or event_type not in ('event', 'webinar'):
+        return Response({'error': 'Code and a valid event/webinar target are required.'}, status=400)
+    if discount_type not in ('percent', 'fixed') or discount_value <= 0:
+        return Response({'error': 'Discount must be a positive percentage or fixed amount.'}, status=400)
+    if discount_type == 'percent' and discount_value > 100:
+        return Response({'error': 'Percentage discounts cannot exceed 100%.'}, status=400)
+
+    max_redemptions = str(data.get('max_redemptions') or '').strip()
+    if max_redemptions and (not max_redemptions.isdigit() or int(max_redemptions) < 1):
+        return Response({'error': 'Registration limit must be at least 1.'}, status=400)
+
+    starts_at = str(data.get('starts_at') or '').strip()
+    expires_at = str(data.get('expires_at') or '').strip()
+    if starts_at and not _parse_coupon_datetime(starts_at):
+        return Response({'error': 'Start date is invalid.'}, status=400)
+    if expires_at and not _parse_coupon_datetime(expires_at):
+        return Response({'error': 'Expiry date is invalid.'}, status=400)
+    if starts_at and expires_at and _parse_coupon_datetime(starts_at) >= _parse_coupon_datetime(expires_at):
+        return Response({'error': 'Expiry must be later than the start date.'}, status=400)
+
+    now = _utcnow().isoformat()
+    try:
+        turso_client.execute(
+            """INSERT INTO coupons
+               (code,event_id,event_title,event_type,discount_type,discount_value,
+                starts_at,expires_at,max_redemptions,redeemed_count,active,created_at,updated_at)
+               VALUES (:code,:event_id,:event_title,:event_type,:discount_type,:discount_value,
+                       NULLIF(:starts_at,''),NULLIF(:expires_at,''),NULLIF(:max_redemptions,''),
+                       0,:active,:created_at,:updated_at)""",
+            {
+                'code': code, 'event_id': event_id, 'event_title': event_title,
+                'event_type': event_type, 'discount_type': discount_type,
+                'discount_value': str(discount_value), 'starts_at': starts_at,
+                'expires_at': expires_at, 'max_redemptions': max_redemptions,
+                'active': 1 if data.get('active', True) else 0,
+                'created_at': now, 'updated_at': now,
+            },
+        )
+    except turso_client.TursoError as exc:
+        if 'UNIQUE' in str(exc).upper():
+            return Response({'error': 'That coupon code already exists.'}, status=409)
+        return Response({'error': str(exc)}, status=503)
+    return Response(_coupon_by_code(code), status=201)
+
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def coupon_detail(request, coupon_id):
+    turso_client.setup_tables()
+    rows = turso_client.execute('SELECT * FROM coupons WHERE id=:id LIMIT 1', {'id': coupon_id})
+    if not rows:
+        return Response({'error': 'Coupon not found.'}, status=404)
+    existing = rows[0]
+
+    if request.method == 'DELETE':
+        turso_client.execute('DELETE FROM coupons WHERE id=:id', {'id': coupon_id})
+        return Response(status=204)
+
+    data = request.data
+    allowed = {
+        'code', 'event_id', 'event_title', 'event_type', 'discount_type',
+        'discount_value', 'starts_at', 'expires_at', 'max_redemptions', 'active',
+    }
+    merged = {**existing, **{key: data[key] for key in allowed if key in data}}
+    code = str(merged.get('code') or '').strip().upper()
+    event_type = str(merged.get('event_type') or '').lower()
+    discount_type = str(merged.get('discount_type') or '').lower()
+    try:
+        discount_value = Decimal(str(merged.get('discount_value')))
+    except InvalidOperation:
+        return Response({'error': 'Enter a valid discount value.'}, status=400)
+    if not code or event_type not in ('event', 'webinar') or discount_type not in ('percent', 'fixed'):
+        return Response({'error': 'Coupon settings are invalid.'}, status=400)
+    if discount_value <= 0 or (discount_type == 'percent' and discount_value > 100):
+        return Response({'error': 'Discount value is outside the allowed range.'}, status=400)
+
+    starts_at = str(merged.get('starts_at') or '').strip()
+    expires_at = str(merged.get('expires_at') or '').strip()
+    max_redemptions = str(merged.get('max_redemptions') or '').strip()
+    if max_redemptions and (not max_redemptions.isdigit() or int(max_redemptions) < 1):
+        return Response({'error': 'Registration limit must be at least 1.'}, status=400)
+    if starts_at and expires_at and (
+        not _parse_coupon_datetime(starts_at)
+        or not _parse_coupon_datetime(expires_at)
+        or _parse_coupon_datetime(starts_at) >= _parse_coupon_datetime(expires_at)
+    ):
+        return Response({'error': 'Coupon schedule is invalid.'}, status=400)
+
+    try:
+        turso_client.execute(
+            """UPDATE coupons SET
+                 code=:code,event_id=:event_id,event_title=:event_title,event_type=:event_type,
+                 discount_type=:discount_type,discount_value=:discount_value,
+                 starts_at=NULLIF(:starts_at,''),expires_at=NULLIF(:expires_at,''),
+                 max_redemptions=NULLIF(:max_redemptions,''),active=:active,updated_at=:updated_at
+               WHERE id=:id""",
+            {
+                'id': coupon_id, 'code': code,
+                'event_id': str(merged.get('event_id') or ''),
+                'event_title': str(merged.get('event_title') or ''),
+                'event_type': event_type, 'discount_type': discount_type,
+                'discount_value': str(discount_value), 'starts_at': starts_at,
+                'expires_at': expires_at, 'max_redemptions': max_redemptions,
+                'active': 1 if str(merged.get('active')).lower() in ('1', 'true') else 0,
+                'updated_at': _utcnow().isoformat(),
+            },
+        )
+    except turso_client.TursoError as exc:
+        if 'UNIQUE' in str(exc).upper():
+            return Response({'error': 'That coupon code already exists.'}, status=409)
+        return Response({'error': str(exc)}, status=503)
+    return Response(turso_client.execute('SELECT * FROM coupons WHERE id=:id', {'id': coupon_id})[0])
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def validate_coupon(request):
+    turso_client.setup_tables()
+    data = request.data
+    base_amount = _resolve_hosted_price(
+        data.get('event_id'), data.get('event_title'), data.get('event_type'),
+    )
+    if base_amount is None or base_amount <= 0:
+        return Response({'valid': False, 'error': 'The paid event price could not be verified.'}, status=400)
+    result, error = _evaluate_coupon(
+        data.get('code'), data.get('event_id'), data.get('event_title'),
+        data.get('event_type'), base_amount,
+    )
+    if error:
+        return Response({'valid': False, 'error': error}, status=400)
+    return Response({
+        'valid': True,
+        'code': result['code'],
+        'discount_type': result['discount_type'],
+        'discount_value': result['discount_value'],
+        'discount_amount': str(result['discount_amount']),
+        'final_amount': str(result['final_amount']),
+        'remaining_uses': (
+            None if result.get('max_redemptions') in (None, '')
+            else max(int(result['max_redemptions']) - int(result.get('redeemed_count') or 0), 0)
+        ),
+    })
 
 
 # ── public registration endpoint ─────────────────────────────────────────────
@@ -56,12 +351,13 @@ def register_for_event(request):
             turso_client.setup_tables()
             turso_client.execute(
                 """INSERT INTO registrations
-                   (event_id, event_title, event_type, name, email, phone, city, registered_at)
-                   VALUES (:event_id, :event_title, :event_type, :name, :email, :phone, :city, :registered_at)""",
+                   (event_id, event_title, event_type, event_date, name, email, phone, city, registered_at)
+                   VALUES (:event_id, :event_title, :event_type, :event_date, :name, :email, :phone, :city, :registered_at)""",
                 {
                     'event_id':     str(data.get('event_id') or ''),
                     'event_title':  event_title,
                     'event_type':   event_type,
+                    'event_date':   event_date,
                     'name':         name,
                     'email':        email,
                     'phone':        str(data.get('phone') or ''),
@@ -104,6 +400,7 @@ def list_registrations(request):
     if not turso_client.is_configured():
         return Response({'error': 'Turso not configured', 'rows': []}, status=503)
     try:
+        turso_client.setup_tables()
         rows = turso_client.execute(
             'SELECT * FROM registrations ORDER BY registered_at DESC LIMIT 500'
         )
@@ -145,58 +442,135 @@ def create_payment_order(request):
     Called when the event has a price > 0.
     Returns a Razorpay order_id the frontend uses to open the checkout modal.
     """
-    if not razorpay_client.is_configured():
-        return Response({'error': 'Payment system not configured.'}, status=503)
-
     data = request.data
     event_id    = str(data.get('event_id') or '')
     event_title = str(data.get('event_title') or '').strip()
-    amount_inr  = float(data.get('amount') or 0)
+    event_type  = str(data.get('event_type') or 'event').strip().lower()
     name        = str(data.get('name') or '').strip()
     email       = str(data.get('email') or '').strip()
+    coupon_code = str(data.get('coupon_code') or '').strip().upper()
 
-    if not event_title or not email or amount_inr <= 0:
-        return Response({'error': 'event_title, email and amount are required.'}, status=400)
+    amount_inr = _resolve_hosted_price(event_id, event_title, event_type)
+
+    if not event_title or not email:
+        return Response({'error': 'event_title and email are required.'}, status=400)
+    if amount_inr is None or amount_inr <= 0:
+        return Response({'error': 'The paid event price could not be verified.'}, status=400)
+
+    turso_client.setup_tables()
+    coupon = None
+    if coupon_code:
+        coupon, coupon_error = _evaluate_coupon(
+            coupon_code, event_id, event_title, event_type, amount_inr,
+        )
+        if coupon_error:
+            return Response({'error': coupon_error}, status=400)
+        if not _reserve_coupon(coupon['id']):
+            return Response({'error': 'This coupon is no longer available.'}, status=409)
+
+    discount_amount = coupon['discount_amount'] if coupon else Decimal('0')
+    final_amount = coupon['final_amount'] if coupon else amount_inr
+    now = _utcnow().isoformat()
+    registration_params = {
+        'event_id': event_id,
+        'event_title': event_title,
+        'event_type': event_type,
+        'event_date': str(data.get('event_date') or ''),
+        'name': name,
+        'email': email,
+        'phone': str(data.get('phone') or ''),
+        'city': str(data.get('city') or ''),
+        'registered_at': now,
+        'amount': int(round(amount_inr * 100)),
+        'coupon_code': coupon_code,
+        'discount_amount': int(round(discount_amount * 100)),
+        'final_amount': int(round(final_amount * 100)),
+        'coupon_redeemed': 1 if coupon else 0,
+    }
+
+    # A 100% coupon completes registration without opening Razorpay.
+    if final_amount <= 0:
+        try:
+            turso_client.execute(
+                """INSERT INTO registrations
+                   (event_id,event_title,event_type,event_date,name,email,phone,city,registered_at,
+                    payment_required,amount,payment_status,coupon_code,discount_amount,
+                    final_amount,coupon_redeemed)
+                   VALUES (:event_id,:event_title,:event_type,:event_date,:name,:email,:phone,:city,
+                           :registered_at,0,:amount,'free',:coupon_code,:discount_amount,
+                           :final_amount,:coupon_redeemed)""",
+                registration_params,
+            )
+        except turso_client.TursoError as exc:
+            if coupon:
+                _release_coupon(coupon_code)
+            logger.error('Turso coupon registration insert failed: %s', exc)
+            return Response({'error': 'Registration could not be saved.'}, status=503)
+
+        email_sent = send_registration_confirmation(
+            email, name, event_title, event_type, str(data.get('event_date') or ''),
+        )
+        return Response({
+            'status': 'registered',
+            'free': True,
+            'coupon_code': coupon_code,
+            'discount_amount': str(discount_amount),
+            'final_amount': '0.00',
+            'email_sent': email_sent,
+        })
+
+    if not razorpay_client.is_configured():
+        if coupon:
+            _release_coupon(coupon_code)
+        return Response({'error': 'Payment system not configured.'}, status=503)
 
     try:
         order = razorpay_client.create_order(
-            amount_inr=amount_inr,
+            amount_inr=float(final_amount),
             receipt=f'tvev-{event_id[:20]}-{email[:15]}',
-            notes={'event': event_title, 'email': email, 'name': name},
+            notes={
+                'event': event_title,
+                'email': email,
+                'name': name,
+                'coupon': coupon_code,
+            },
         )
     except Exception as exc:
+        if coupon:
+            _release_coupon(coupon_code)
         logger.error('Razorpay create_order failed: %s', exc)
         return Response({'error': 'Could not create payment order.'}, status=500)
 
     # Save a pending row to Turso so we can match it on verification
-    now = datetime.datetime.utcnow().isoformat()
     if turso_client.is_configured():
         try:
             turso_client.execute(
                 """INSERT INTO registrations
-                   (event_id, event_title, event_type, name, email,
+                   (event_id, event_title, event_type, event_date, name, email,
                     phone, city, registered_at,
-                    payment_required, amount, razorpay_order_id, payment_status)
-                   VALUES (:event_id,:event_title,:event_type,:name,:email,
+                    payment_required, amount, razorpay_order_id, payment_status,
+                    coupon_code,discount_amount,final_amount,coupon_redeemed)
+                   VALUES (:event_id,:event_title,:event_type,:event_date,:name,:email,
                            :phone,:city,:registered_at,
-                           1,:amount,:razorpay_order_id,'pending')""",
+                           1,:amount,:razorpay_order_id,'pending',
+                           :coupon_code,:discount_amount,:final_amount,:coupon_redeemed)""",
                 {
-                    'event_id':          event_id,
-                    'event_title':       event_title,
-                    'event_type':        str(data.get('event_type') or 'event'),
-                    'name':              name,
-                    'email':             email,
-                    'phone':             str(data.get('phone') or ''),
-                    'city':              str(data.get('city') or ''),
-                    'registered_at':     now,
-                    'amount':            int(round(amount_inr * 100)),
+                    **registration_params,
                     'razorpay_order_id': order['order_id'],
                 },
             )
         except turso_client.TursoError as exc:
+            if coupon:
+                _release_coupon(coupon_code)
             logger.warning('Turso pending row insert failed: %s', exc)
+            return Response({'error': 'Payment order was created but registration could not be reserved.'}, status=503)
 
-    return Response(order)
+    return Response({
+        **order,
+        'coupon_code': coupon_code,
+        'discount_amount': str(discount_amount),
+        'final_amount': str(final_amount),
+    })
 
 
 # ── Razorpay: verify payment ───────────────────────────────────────────────────
@@ -301,8 +675,19 @@ def razorpay_webhook(request):
 
     elif event == 'payment.failed' and order_id and turso_client.is_configured():
         try:
+            rows = turso_client.execute(
+                """SELECT coupon_code,coupon_redeemed,payment_status
+                   FROM registrations WHERE razorpay_order_id=:oid LIMIT 1""",
+                {'oid': order_id},
+            )
+            row = rows[0] if rows else None
+            if row and str(row.get('coupon_redeemed') or '0') == '1' \
+                    and row.get('payment_status') != 'failed':
+                _release_coupon(row.get('coupon_code'))
             turso_client.execute(
-                "UPDATE registrations SET payment_status='failed' WHERE razorpay_order_id=:oid",
+                """UPDATE registrations
+                   SET payment_status='failed', coupon_redeemed=0
+                   WHERE razorpay_order_id=:oid""",
                 {'oid': order_id},
             )
         except turso_client.TursoError:

@@ -1,0 +1,240 @@
+/* Runtime overrides for the Certificate Studio editor mockup.
+   Kept at frontend root because the Certificates page folder is write-locked
+   in the current sandbox. */
+
+.certificate-editor {
+  --page-panel: clamp(142px, 13vw, 208px);
+  --property-panel: clamp(252px, 19vw, 316px);
+  height: calc(100vh - 82px) !important;
+  min-height: 700px !important;
+  margin: -24px !important;
+  overflow: hidden !important;
+  border-radius: 0 !important;
+  background: #f8f9ff !important;
+}
+
+.certificate-editor-workspace {
+  grid-template-columns: var(--page-panel) minmax(620px, 1fr) var(--property-panel) !important;
+  background: #f8f9ff !important;
+}
+
+.certificate-page-sidebar {
+  padding: 0 !important;
+  overflow-x: visible !important;
+  border-right: 1px solid #c7c4d8 !important;
+  background: #ffffff !important;
+}
+
+.certificate-page-sidebar h2 {
+  margin: 0 !important;
+  padding: 16px !important;
+  border-bottom: 1px solid #c7c4d8 !important;
+  color: #0b1c30 !important;
+  font-family: "Hanken Grotesk", Inter, system-ui, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.08em !important;
+}
+
+.certificate-page-item {
+  position: relative !important;
+  overflow: visible !important;
+  margin: 14px clamp(8px, 1vw, 16px) !important;
+  padding: 8px !important;
+  border: 2px solid transparent !important;
+  border-radius: 12px !important;
+  background: #eff4ff !important;
+  box-shadow: none !important;
+}
+
+.certificate-page-item.is-active {
+  border-color: #3525cd !important;
+  background: #e5eeff !important;
+  box-shadow: 0 0 0 5px rgba(53, 37, 205, 0.07) !important;
+}
+
+.certificate-page-item > button {
+  display: grid !important;
+  grid-template-columns: 1fr auto !important;
+  min-height: 0 !important;
+  gap: 8px !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.certificate-page-item > button i {
+  position: relative !important;
+  display: block !important;
+  grid-column: 1 / -1 !important;
+  aspect-ratio: 1.41 !important;
+  overflow: hidden !important;
+  border: 1px solid #c7c4d8 !important;
+  border-radius: 8px !important;
+  background:
+    radial-gradient(circle at 73% 18%, rgba(53, 37, 205, 0.10), transparent 30%),
+    linear-gradient(90deg, transparent 8%, rgba(53, 37, 205, 0.09) 8% 10%, transparent 10% 90%, rgba(53, 37, 205, 0.09) 90% 92%, transparent 92%),
+    linear-gradient(0deg, transparent 12%, rgba(53, 37, 205, 0.09) 12% 15%, transparent 15% 85%, rgba(53, 37, 205, 0.09) 85% 88%, transparent 88%),
+    #ffffff !important;
+}
+
+.certificate-page-item > button i::before {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  border: 1px solid rgba(53, 37, 205, 0.18);
+  border-radius: 2px;
+}
+
+.certificate-page-item > button i::after {
+  content: "";
+  position: absolute;
+  left: 28%;
+  right: 28%;
+  top: 42%;
+  height: 9%;
+  border-radius: 999px;
+  background: rgba(53, 37, 205, 0.22);
+  box-shadow:
+    0 150% 0 rgba(11, 28, 48, 0.08),
+    0 300% 0 rgba(11, 28, 48, 0.08);
+}
+
+.certificate-page-item > button span {
+  display: inline !important;
+  width: auto !important;
+  height: auto !important;
+  background: transparent !important;
+  color: #0b1c30 !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+}
+
+.certificate-page-item small {
+  color: #777587 !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+}
+
+.certificate-page-item > div {
+  position: absolute !important;
+  right: -12px !important;
+  top: 50% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  opacity: 0 !important;
+  transform: translateY(-50%) !important;
+  transition: opacity 160ms ease !important;
+}
+
+.certificate-page-item:hover > div {
+  opacity: 1 !important;
+}
+
+.certificate-page-item > div button {
+  width: 24px !important;
+  height: 24px !important;
+  border: 1px solid #c7c4d8 !important;
+  border-radius: 7px !important;
+  background: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(11, 28, 48, 0.12) !important;
+}
+
+.certificate-canvas-scroll {
+  align-items: center !important;
+  justify-items: center !important;
+  padding: 76px clamp(18px, 3vw, 40px) 36px !important;
+  background-color: #f8f9ff !important;
+  background-image:
+    linear-gradient(45deg, #e2e8f0 25%, transparent 25%),
+    linear-gradient(-45deg, #e2e8f0 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e2e8f0 75%),
+    linear-gradient(-45deg, transparent 75%, #e2e8f0 75%) !important;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0 !important;
+  background-size: 20px 20px !important;
+}
+
+.certificate-pdf-canvas {
+  max-width: none !important;
+  border: 1px solid #c7c4d8 !important;
+  box-shadow: 0 18px 42px rgba(11, 28, 48, 0.18) !important;
+}
+
+.certificate-overlay.is-selected {
+  outline: 1px solid #3525cd !important;
+  outline-offset: 4px !important;
+  box-shadow: 0 0 0 1px rgba(53, 37, 205, 0.18) !important;
+}
+
+.certificate-overlay.is-selected::before,
+.certificate-overlay.is-selected::after {
+  content: "" !important;
+  position: absolute !important;
+  z-index: 3 !important;
+  width: 8px !important;
+  height: 8px !important;
+  border: 1px solid #ffffff !important;
+  border-radius: 0 !important;
+  background: #3525cd !important;
+  pointer-events: none !important;
+}
+
+.certificate-overlay.is-selected::before {
+  left: -8px !important;
+  top: -8px !important;
+}
+
+.certificate-overlay.is-selected::after {
+  right: -8px !important;
+  bottom: -8px !important;
+}
+
+.certificate-color-row {
+  display: flex !important;
+  min-height: 38px !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 6px 8px !important;
+  border: 1px solid #c7c4d8 !important;
+  border-radius: 10px !important;
+  background: #f8f9ff !important;
+}
+
+.certificate-color-row input[type="color"],
+.certificate-field input[type="color"] {
+  width: 38px !important;
+  height: 38px !important;
+  padding: 4px !important;
+  border: 1px solid #c7c4d8 !important;
+  border-radius: 10px !important;
+  background: #f8f9ff !important;
+}
+
+.certificate-color-row button {
+  margin-left: auto !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #ba1a1a !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+}
+
+.certificate-properties {
+  border-left: 1px solid #c7c4d8 !important;
+  background: #ffffff !important;
+}
+
+@media (min-width: 1500px) {
+  .certificate-editor {
+    --page-panel: 180px;
+    --property-panel: 292px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .certificate-editor-workspace {
+    grid-template-columns: 132px minmax(480px, 1fr) 260px !important;
+  }
+}

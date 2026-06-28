@@ -158,13 +158,20 @@ class TeamMember(models.Model):
         }
 
 
-# ── EventRegistration (workshops / online sessions) ───────────────────────────
+# ── EventRegistration (webinar / workshop listings) ───────────────────────────
 class EventRegistration(models.Model):
+    kind = models.CharField(
+        max_length=20,
+        choices=[('webinar', 'Webinar'), ('workshop', 'Workshop')],
+        default='workshop',
+    )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     date = models.CharField(max_length=50, blank=True)
     time_tz = models.CharField(max_length=50, blank=True)
     host = models.CharField(max_length=255, blank=True)
+    host_image_url = models.URLField(max_length=500, blank=True)
+    price = models.PositiveIntegerField(default=0)
     cover_url = models.URLField(blank=True)
     register_url = models.URLField(blank=True)
     status = models.CharField(
@@ -182,11 +189,14 @@ class EventRegistration(models.Model):
 
     def to_supabase_dict(self):
         return {
+            'kind':         self.kind,
             'title':        self.title,
             'description':  self.description,
             'date':         self.date,
             'time_tz':      self.time_tz,
             'host':         self.host,
+            'host_image_url': self.host_image_url,
+            'price':        self.price,
             'cover_url':    self.cover_url,
             'register_url': self.register_url,
             'status':       self.status,

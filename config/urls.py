@@ -19,6 +19,15 @@ from django.urls import path, include
 from rest_framework_simplejwt.views import TokenRefreshView
 from accounts_app.views import CustomTokenObtainPairView, SettingViewSet
 from tiesverse_app.media_views import MediaUploadView, CloudinaryImageListView
+from config.certificate_proxy import certificate_generator_proxy
+from config.certificate_workflow import (
+    certificate_import_records,
+    certificate_import_rows,
+    certificate_mark_emailed,
+    certificate_records,
+    certificate_records_csv,
+    certificate_sources,
+)
 from rest_framework.routers import DefaultRouter
 
 router = DefaultRouter()
@@ -34,5 +43,12 @@ urlpatterns = [
     path('api/webinar/', include('webinar_app.urls')),
     path('api/media/upload/', MediaUploadView.as_view(), name='media_upload'),
     path('api/media/images/', CloudinaryImageListView.as_view(), name='media_images'),
+    path('api/certificates/proxy/<path:remote_path>', certificate_generator_proxy, name='certificate_generator_proxy'),
+    path('api/certificates/sources/', certificate_sources, name='certificate_sources'),
+    path('api/certificates/import-rows/', certificate_import_rows, name='certificate_import_rows'),
+    path('api/certificates/import-records/', certificate_import_records, name='certificate_import_records'),
+    path('api/certificates/records/', certificate_records, name='certificate_records'),
+    path('api/certificates/records/csv/', certificate_records_csv, name='certificate_records_csv'),
+    path('api/certificates/records/mark-emailed/', certificate_mark_emailed, name='certificate_mark_emailed'),
     path('api/', include(router.urls)),
 ]

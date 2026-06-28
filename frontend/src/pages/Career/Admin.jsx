@@ -2,14 +2,16 @@ import React, { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../../context/AuthContext';
 import {
     getPositions, createPosition, updatePosition, deletePosition,
-    getEnrollments, updateEnrollment, deleteEnrollment,
     getOfferLetters, createOfferLetter, updateOfferLetter, deleteOfferLetter,
-    getCandidates, updateCandidate, getFormGates, updateFormGates,
+    getCandidates, updateCandidateStatus, getFormGates, updateFormGates,
     downloadFile, sendOffer
 } from '../../apiClient';
-import { Plus, Edit2, Trash2, X, Sparkles, Briefcase, FileText, Mail, Users, ToggleRight, CheckCircle, ExternalLink, Search, Download, Eye } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Sparkles, Briefcase, FileText, Mail, ToggleRight, CheckCircle, ExternalLink, Search, Download, Eye } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import './CareerPositions.css';
+import './ApplicationTracker.css';
+import './FormGates.css';
 
 // ===== SHARED STYLES =====
 const inputStyle = {
@@ -40,25 +42,116 @@ const FormField = ({ label, name, value, onChange, placeholder, required, type =
     </div>
 );
 
+const parseAssessmentAnswers = (rawAnswers) => {
+    if (!rawAnswers) return [];
+
+    if (Array.isArray(rawAnswers)) {
+        return rawAnswers.map((item, index) => ({
+            question: item?.question || item?.label || `Question ${index + 1}`,
+            answer: item?.answer || item?.value || JSON.stringify(item),
+        }));
+    }
+
+    if (typeof rawAnswers === 'object') {
+        return Object.entries(rawAnswers).map(([question, answer]) => ({
+            question,
+            answer: typeof answer === 'string' ? answer : JSON.stringify(answer, null, 2),
+        }));
+    }
+
+    const text = String(rawAnswers).replace(/\r\n/g, '\n').trim();
+    if (!text) return [];
+
+    try {
+        const parsed = JSON.parse(text);
+        if (parsed !== text) return parseAssessmentAnswers(parsed);
+    } catch {
+        // Plain-text assessments are parsed below.
+    }
+
+    const tiles = [];
+    let question = '';
+    let answers = [];
+    const pushTile = () => {
+        if (!question && answers.length === 0) return;
+        tiles.push({
+            question: question || 'Assessment',
+            answer: answers.join('\n').trim() || '—',
+        });
+    };
+
+    text.split('\n').map((line) => line.trim()).filter(Boolean).forEach((line) => {
+        const isAnswer = /^->\s*/.test(line);
+        const isQuestion = /^\[.*?\]\s*/.test(line) || (!isAnswer && line.endsWith('?'));
+        if (isQuestion) {
+            pushTile();
+            question = line.replace(/^\[.*?\]\s*/, '').trim();
+            answers = [];
+        } else {
+            if (!question) question = 'Assessment';
+            answers.push(line.replace(/^->\s*/, ''));
+        }
+    });
+    pushTile();
+    return tiles;
+};
+
+const FORM_GATE_CATEGORIES = {
+    Tech: ['tech_roles'],
+    Content: ['content_editor', 'content_writer_upsc', 'upsc_strategist', 'graphic_designer_canva', 'uiux_designer'],
+    Media: ['video_editor_reels_yt', 'social_media_manager_ig', 'youtube_manager'],
+    Operations: ['hr', 'marketing_outreach', 'management_coordination', 'collab_outreach'],
+};
+
+const FORM_GATE_CATEGORY_HINTS = {
+    Tech: 'All developer roles',
+    Content: 'Editorial & research',
+    Media: 'Video & social',
+    Operations: 'HR & management',
+};
+
+const FORM_GATE_GROUPS = [
+    { title: 'Content', keys: ['content_editor', 'content_writer_upsc', 'upsc_strategist'] },
+    { title: 'Design', keys: ['graphic_designer_canva', 'uiux_designer'] },
+    { title: 'Media', keys: ['video_editor_reels_yt', 'social_media_manager_ig', 'youtube_manager'] },
+    { title: 'Operations', keys: ['hr', 'marketing_outreach', 'management_coordination', 'collab_outreach'] },
+    { title: 'Tech', keys: ['tech_roles'] },
+];
+
+const FORM_GATE_LABELS = {
+    Tech: 'Tech',
+    Content: 'Content',
+    Media: 'Media',
+    Operations: 'Operations',
+    content_editor: 'Content Editor',
+    content_writer_upsc: 'Content Writer (UPSC)',
+    upsc_strategist: 'UPSC Content Researcher and Strategist',
+    graphic_designer_canva: 'Graphic Designer (Canva)',
+    uiux_designer: 'UI/UX Designer',
+    video_editor_reels_yt: 'Video Editor (Reels + YouTube)',
+    social_media_manager_ig: 'Social Media Manager (Instagram)',
+    youtube_manager: 'YouTube Manager',
+    hr: 'Human Resource (HR)',
+    marketing_outreach: 'Marketing & Outreach Specialist',
+    management_coordination: 'Management / Team Co-ordination',
+    collab_outreach: 'Collaboration & Outreach Manager',
+    tech_roles: 'Tech Roles',
+};
+
 const TAB_CONFIG = {
     positions: {
         title: 'Positions', subtitle: 'Manage job postings.', icon: <Briefcase size={20} />, itemLabel: 'Position',
         fetchFn: getPositions, createFn: createPosition, updateFn: updatePosition, deleteFn: deletePosition,
         defaultForm: { is_open: true },
     },
-    enrollments: {
-        title: 'Enrollments', subtitle: 'Manage job applications.', icon: <FileText size={20} />, itemLabel: 'Enrollment',
-        fetchFn: getEnrollments, createFn: null, updateFn: updateEnrollment, deleteFn: deleteEnrollment,
-        defaultForm: { status: 'Pending' },
+    applications: {
+        title: 'Application Tracker', subtitle: 'Review applications and manage every hiring decision in one place.', icon: <FileText size={20} />, itemLabel: 'Application',
+        fetchFn: getCandidates, createFn: null, updateFn: updateCandidateStatus, deleteFn: null,
+        defaultForm: {},
     },
     offers: {
         title: 'Offer Letters', subtitle: 'Manage and generate offer letters.', icon: <Mail size={20} />, itemLabel: 'Offer Letter',
         fetchFn: getOfferLetters, createFn: createOfferLetter, updateFn: updateOfferLetter, deleteFn: deleteOfferLetter,
-        defaultForm: {},
-    },
-    candidates: {
-        title: 'Candidates', subtitle: 'Manage candidate applications from Cloudflare.', icon: <Users size={20} />, itemLabel: 'Candidate',
-        fetchFn: getCandidates, createFn: null, updateFn: updateCandidate, deleteFn: null,
         defaultForm: {},
     },
     form_gates: {
@@ -94,6 +187,11 @@ const CareerAdmin = ({ tab = 'positions' }) => {
     const [pdfModalOpen, setPdfModalOpen] = useState(false);
     const [pdfConfig, setPdfConfig] = useState({ department: 'All', status: 'All' });
     const [detailsModal, setDetailsModal] = useState({ open: false, candidate: null });
+    const [detailsTab, setDetailsTab] = useState('summary');
+    const [applicationDrafts, setApplicationDrafts] = useState({});
+    const [savingApplication, setSavingApplication] = useState(null);
+    const [gateDraft, setGateDraft] = useState({});
+    const [savingGates, setSavingGates] = useState(false);
 
     const showNotice = (msg, type = 'success') => {
         setNotification({ msg, type });
@@ -145,7 +243,7 @@ const CareerAdmin = ({ tab = 'positions' }) => {
         setLoading(true);
         try {
             if (tab === 'offers') {
-                // Show Selected D1 candidates for offer letter generation.
+                // Show selected applications in the offer-letter roster.
                 const cands = await getCandidates();
                 const selected = (cands?.data || cands || []).filter(c => c.final_decision === 'Selected' || c.final_decision === 'Accepted');
                 setItems(selected);
@@ -156,7 +254,8 @@ const CareerAdmin = ({ tab = 'positions' }) => {
                     const gates = data?.gates || {};
                     const gatesArray = Object.entries(gates).map(([key, value]) => ({ id: key, name: key, is_open: value }));
                     setItems(gatesArray);
-                } else if (tab === 'candidates') {
+                    setGateDraft(gates);
+                } else if (tab === 'applications') {
                     setItems(data.data || data || []);
                 } else {
                     setItems(data || []);
@@ -177,32 +276,19 @@ const CareerAdmin = ({ tab = 'positions' }) => {
             setSearchQuery('');
             setFilterDepartment('All');
             setFilterStatus('All');
+            setApplicationDrafts({});
         }
     }, [tab, user]);
 
     const filteredItems = items.filter(item => {
-        if (tab !== 'candidates' && tab !== 'enrollments') return true;
+        if (tab !== 'applications') return true;
 
         const s = searchQuery.toLowerCase();
-        let name = '';
-        let email = '';
-        let role = '';
-        let dept = '';
-        let stat = '';
-
-        if (tab === 'candidates') {
-            name = `${item.first_name || ''} ${item.last_name || ''}`.toLowerCase();
-            email = (item.email || '').toLowerCase();
-            role = (item.roles || '').toLowerCase();
-            dept = item.department || 'Unknown';
-            stat = item.final_decision || 'Under Review';
-        } else if (tab === 'enrollments') {
-            name = (item.applicant_name || '').toLowerCase();
-            email = (item.email || '').toLowerCase();
-            role = (item.position?.title || '').toLowerCase();
-            dept = item.position?.department || 'Unknown';
-            stat = item.status || 'Pending';
-        }
+        const name = `${item.first_name || ''} ${item.last_name || ''}`.toLowerCase();
+        const email = (item.email || '').toLowerCase();
+        const role = (item.roles || '').toLowerCase();
+        const dept = item.department || 'Unknown';
+        const stat = item.final_decision || 'Under Review';
 
         const matchSearch = name.includes(s) || email.includes(s) || role.includes(s);
         const matchDept = filterDepartment === 'All' || dept === filterDepartment;
@@ -220,32 +306,22 @@ const CareerAdmin = ({ tab = 'positions' }) => {
         doc.setFontSize(11);
         doc.setFont('helvetica', 'normal');
         doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30);
-        doc.text(`Source: ${tab === 'candidates' ? 'Cloudflare ATS' : 'Enrollments DB'}`, 14, 36);
+        doc.text('Source: Career applications', 14, 36);
         doc.text(`Filters applied -> Department: ${pdfConfig.department} | Status: ${pdfConfig.status}`, 14, 42);
 
         let exportItems = items.filter(item => {
-            let dept = tab === 'candidates' ? item.department : item.position?.department;
-            let stat = tab === 'candidates' ? item.final_decision : item.status;
+            let dept = item.department;
+            let stat = item.final_decision;
             const matchDept = pdfConfig.department === 'All' || dept === pdfConfig.department;
             const matchStatus = pdfConfig.status === 'All' || stat === pdfConfig.status;
             return matchDept && matchStatus;
         });
 
-        let tableColumns = [];
-        let tableRows = [];
-
-        if (tab === 'candidates') {
-            tableColumns = ['Name', 'Email', 'Role', 'Dept', 'Interviewer', 'Rating', 'Decision'];
-            tableRows = exportItems.map(i => [
-                `${i.first_name || ''} ${i.last_name || ''}`, i.email || '-', i.roles || '-', i.department || '-',
-                i.interviewer || '-', i.rating || '-', i.final_decision || 'Under Review'
-            ]);
-        } else {
-            tableColumns = ['Applicant', 'Email', 'Position', 'Dept', 'Status'];
-            tableRows = exportItems.map(i => [
-                i.applicant_name || '-', i.email || '-', i.position?.title || '-', i.position?.department || '-', i.status || 'Pending'
-            ]);
-        }
+        const tableColumns = ['Name', 'Email', 'Role', 'Dept', 'Interviewer', 'Rating', 'Decision'];
+        const tableRows = exportItems.map(i => [
+            `${i.first_name || ''} ${i.last_name || ''}`, i.email || '-', i.roles || '-', i.department || '-',
+            i.interviewer || '-', i.rating || '-', i.final_decision || 'Under Review'
+        ]);
 
         autoTable(doc, {
             startY: 50,
@@ -268,7 +344,7 @@ const CareerAdmin = ({ tab = 'positions' }) => {
     };
 
     const openEditModal = (item) => {
-        if (tab === 'candidates') {
+        if (tab === 'applications') {
             setEditingId(item.row_index || item.id);
         } else {
             setEditingId(item.id);
@@ -288,19 +364,44 @@ const CareerAdmin = ({ tab = 'positions' }) => {
         setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     };
 
-    const handleFormGateToggle = async (key, currentValue) => {
-        setLoading(true);
+    const handleFormGateToggle = (key, isOpen) => {
+        setGateDraft((current) => {
+            const next = { ...current, [key]: isOpen };
+            if (FORM_GATE_CATEGORIES[key]) {
+                FORM_GATE_CATEGORIES[key].forEach((positionKey) => {
+                    next[positionKey] = isOpen;
+                });
+            }
+            if (!FORM_GATE_CATEGORIES[key] && isOpen) {
+                const category = Object.entries(FORM_GATE_CATEGORIES)
+                    .find(([, positionKeys]) => positionKeys.includes(key))?.[0];
+                if (category) next[category] = true;
+            }
+            return next;
+        });
+    };
+
+    const setAllFormGates = (isOpen) => {
+        setGateDraft((current) => Object.keys(current).reduce((next, key) => {
+            next[key] = isOpen;
+            return next;
+        }, {}));
+    };
+
+    const saveFormGates = async () => {
+        setSavingGates(true);
         try {
-            const updatedGates = {};
-            items.forEach(item => { updatedGates[item.name] = item.is_open; });
-            updatedGates[key] = !currentValue;
-            await updateFormGates({ gates: updatedGates });
-            showNotice('Form gate updated!');
-            fetchData();
-        } catch (err) {
-            showNotice('Failed to update form gate.', 'error');
+            const response = await updateFormGates({ gates: gateDraft });
+            if (response?.error || response?.status === 'error') {
+                throw new Error(response?.error || response?.message || 'Update failed');
+            }
+            showNotice('Application form settings saved.');
+            await fetchData();
+        } catch (error) {
+            showNotice(`Failed to save form settings: ${error?.message || 'Unknown error'}`, 'error');
+        } finally {
+            setSavingGates(false);
         }
-        setLoading(false);
     };
 
     const handleSubmit = async (e) => {
@@ -345,22 +446,6 @@ const CareerAdmin = ({ tab = 'positions' }) => {
             </>
         );
 
-        if (tab === 'enrollments') return (
-            <>
-                <FormField label="Applicant Name" name="applicant_name" value={formData.applicant_name} onChange={handleInputChange} disabled />
-                <FormField label="Email" name="email" value={formData.email} onChange={handleInputChange} disabled />
-                <div>
-                    <FieldLabel>Status</FieldLabel>
-                    <select name="status" value={formData.status || 'Pending'} onChange={handleInputChange} style={selectStyle}>
-                        <option value="Pending">Pending</option>
-                        <option value="Reviewed">Reviewed</option>
-                        <option value="Selected">Selected</option>
-                        <option value="Rejected">Rejected</option>
-                    </select>
-                </div>
-            </>
-        );
-
         if (tab === 'offers') return (
             <>
                 <div>
@@ -377,7 +462,7 @@ const CareerAdmin = ({ tab = 'positions' }) => {
             </>
         );
 
-        if (tab === 'candidates') return (
+        if (tab === 'applications') return (
             <>
                 <FormField label="First Name" name="first_name" value={formData.first_name} disabled />
                 <FormField label="Last Name" name="last_name" value={formData.last_name} disabled />
@@ -411,32 +496,268 @@ const CareerAdmin = ({ tab = 'positions' }) => {
         return null;
     };
 
-    const renderItemCard = (item) => {
-        if (tab === 'form_gates') {
-            return (
-                <div key={item.id} style={{
-                    background: 'rgba(20,20,20,0.6)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '16px',
-                    padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                }}>
+    const openApplicationDetails = (candidate) => {
+        setDetailsTab('summary');
+        setDetailsModal({ open: true, candidate });
+    };
+
+    const closeApplicationDetails = () => {
+        setDetailsModal({ open: false, candidate: null });
+        setDetailsTab('summary');
+    };
+
+    const getApplicationId = (application) => application.id ?? application.row_index;
+
+    const getApplicationDraft = (application) => {
+        const id = getApplicationId(application);
+        return applicationDrafts[id] || {
+            interview_status: application.interview_status || 'Pending Setup',
+            interviewer: application.interviewer || '',
+            rating: Number(application.rating || 0),
+            final_decision: application.final_decision || 'Under Review',
+        };
+    };
+
+    const updateApplicationDraft = (application, field, value) => {
+        const id = getApplicationId(application);
+        setApplicationDrafts((current) => ({
+            ...current,
+            [id]: {
+                interview_status: application.interview_status || 'Pending Setup',
+                interviewer: application.interviewer || '',
+                rating: Number(application.rating || 0),
+                final_decision: application.final_decision || 'Under Review',
+                ...(current[id] || {}),
+                [field]: value,
+            },
+        }));
+    };
+
+    const resetFormGates = () => {
+        setGateDraft(items.reduce((next, item) => {
+            next[item.name] = item.is_open;
+            return next;
+        }, {}));
+        showNotice('Unsaved form changes were discarded.');
+    };
+
+    const saveApplicationEvaluation = async (application) => {
+        const id = getApplicationId(application);
+        const draft = getApplicationDraft(application);
+        setSavingApplication(id);
+        try {
+            const result = await updateCandidateStatus(id, draft);
+            if (result?.error) throw new Error(result.error);
+            setItems((current) => current.map((item) => (
+                String(getApplicationId(item)) === String(id) ? { ...item, ...draft } : item
+            )));
+            setApplicationDrafts((current) => {
+                const next = { ...current };
+                delete next[id];
+                return next;
+            });
+            showNotice(`Evaluation saved for ${application.first_name || 'applicant'}.`);
+        } catch (error) {
+            showNotice(`Could not save evaluation: ${error?.message || 'Unknown error'}`, 'error');
+        } finally {
+            setSavingApplication(null);
+        }
+    };
+
+    const renderFormGateCard = (key, isCategory = false) => {
+        const isOpen = gateDraft[key] !== false;
+        return (
+            <article className={`form-gate-card ${isCategory ? 'is-category' : 'is-position'} ${isOpen ? 'is-open' : 'is-closed'}`} key={key}>
+                <div>
+                    <h3>{FORM_GATE_LABELS[key] || key}</h3>
+                    <p>{isCategory ? FORM_GATE_CATEGORY_HINTS[key] : `Key: ${key}`}</p>
+                </div>
+                <div className="form-gate-card-actions">
+                    <span className={`form-gate-badge ${isOpen ? 'is-open' : 'is-closed'}`}>{isOpen ? 'Open' : 'Closed'}</span>
+                    <label className="form-gate-switch">
+                        <input
+                            type="checkbox"
+                            checked={isOpen}
+                            onChange={(event) => handleFormGateToggle(key, event.target.checked)}
+                            aria-label={`${isOpen ? 'Close' : 'Open'} ${FORM_GATE_LABELS[key] || key} applications`}
+                        />
+                        <span />
+                    </label>
+                </div>
+            </article>
+        );
+    };
+
+    const renderFormGateSettings = () => (
+        <section className="form-gate-settings">
+            <div className="form-gate-callout">
+                Toggle which forms are <strong>Open</strong> or <strong>Closed</strong>. Changes go live after you select <strong>Save changes</strong>.
+            </div>
+
+            <div className="form-gate-category-panel">
+                <header className="form-gate-panel-heading">
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '1rem', color: '#fff' }}>{item.name}</h3>
-                        <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>
-                            {item.is_open ? 'Currently accepting applications' : 'Applications closed'}
-                        </p>
+                        <h2>Category Access Controls</h2>
+                        <p>Override visibility settings for entire departments.</p>
                     </div>
-                    <button onClick={() => handleFormGateToggle(item.name, item.is_open)} style={{
-                        background: item.is_open ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-                        color: item.is_open ? '#10B981' : '#EF4444', border: `1px solid ${item.is_open ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`,
-                        padding: '8px 16px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s'
-                    }}>
-                        {item.is_open ? 'OPEN' : 'CLOSED'}
+                    <div>
+                        <button type="button" onClick={() => setAllFormGates(false)}>Close all</button>
+                        <button type="button" className="is-primary" onClick={() => setAllFormGates(true)}>Open all</button>
+                    </div>
+                </header>
+
+                <div className="form-gate-grid is-categories">
+                    {Object.keys(FORM_GATE_CATEGORIES).map((key) => renderFormGateCard(key, true))}
+                </div>
+            </div>
+
+            <div className="form-gate-detailed">
+                <header className="form-gate-detailed-heading">
+                    <h2>Detailed Position Toggles</h2>
+                    <span>Global list ({Object.keys(gateDraft).length} forms)</span>
+                </header>
+
+                <div className="form-gate-position-groups">
+                    {FORM_GATE_GROUPS.map((group) => (
+                        <section className="form-gate-group" key={group.title}>
+                            <div className="form-gate-group-heading">
+                                <h3>{group.title === 'Tech' ? 'Technology' : group.title}</h3>
+                                <span />
+                            </div>
+                            <div className="form-gate-grid">
+                                {group.keys.map((key) => renderFormGateCard(key))}
+                            </div>
+                        </section>
+                    ))}
+                </div>
+            </div>
+
+            <footer className="form-gate-footer">
+                <div className="form-gate-open-count">
+                    <i />
+                    <span><strong>{Object.values(gateDraft).filter((value) => value !== false).length} of {Object.keys(gateDraft).length}</strong> forms open</span>
+                </div>
+                <div>
+                    <button type="button" className="is-secondary" onClick={resetFormGates} disabled={savingGates}>Cancel changes</button>
+                    <button type="button" onClick={saveFormGates} disabled={savingGates}>
+                        {savingGates ? 'Saving…' : 'Save changes'}
                     </button>
                 </div>
+            </footer>
+        </section>
+    );
+
+    const renderItemCard = (item) => {
+        const title = item.title || item.applicant_name || (item.first_name ? `${item.first_name} ${item.last_name}` : '') || `Offer #${item.id}`;
+        const subtitle = item.department || item.status || item.interview_status || `Salary: $${item.salary}`;
+
+        if (tab === 'positions') {
+            return (
+                <article className="career-position-card" key={item.id}>
+                    <div className="career-position-topline">
+                        <span className={`career-position-department dept-${String(item.department || 'general').toLowerCase().replace(/\s+/g, '-')}`}>
+                            {item.department || 'General'}
+                        </span>
+                        <span className={`career-position-status ${item.is_open === false ? 'is-closed' : 'is-active'}`}>
+                            <i /> {item.is_open === false ? 'Closed' : 'Active'}
+                        </span>
+                    </div>
+                    <h2>{title}</h2>
+                    <p>{item.description || 'No role description has been added yet.'}</p>
+                    <footer>
+                        <span><Briefcase size={15} /> {item.is_open === false ? 'Not accepting applications' : 'Accepting applications'}</span>
+                        <div>
+                            <button type="button" onClick={() => openEditModal(item)} aria-label={`Edit ${title}`}><Edit2 size={17} /></button>
+                            <button type="button" className="is-danger" onClick={() => setDeleteModal({ open: true, id: item.id, title })} aria-label={`Delete ${title}`}><Trash2 size={17} /></button>
+                        </div>
+                    </footer>
+                </article>
             );
         }
 
-        const title = item.title || item.applicant_name || (item.first_name ? `${item.first_name} ${item.last_name}` : '') || `Offer #${item.id}`;
-        const subtitle = item.department || item.status || item.interview_status || `Salary: $${item.salary}`;
+        if (tab === 'applications') {
+            const id = getApplicationId(item);
+            const draft = getApplicationDraft(item);
+            const appliedDate = item.timestamp || item.created_at;
+            const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || 'Unnamed applicant';
+            const portfolioUrl = item.portfolio_link || item.portfolio;
+            const rating = Math.max(0, Math.min(5, Number(draft.rating || 0)));
+
+            return (
+                <article className="application-card" key={id}>
+                    <section className="application-card-info">
+                        <div className="application-card-heading">
+                            <div className="application-avatar">{fullName.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()}</div>
+                            <div>
+                                <h2>{fullName}</h2>
+                                <time>Applied on {appliedDate ? new Date(appliedDate).toLocaleDateString('en-IN') : 'an unavailable date'}</time>
+                            </div>
+                        </div>
+                        <div className="application-tags">
+                            <span className="application-role">{item.roles || 'Role not specified'}</span>
+                            <span className="application-department">{item.department || 'General'}</span>
+                        </div>
+                        <dl className="application-contact">
+                            <div><dt>Email</dt><dd>{item.email || 'Not provided'}</dd></div>
+                            <div><dt>City</dt><dd>{item.city || 'Not provided'}</dd></div>
+                            <div><dt>Phone</dt><dd>{item.phone || 'Not provided'}</dd></div>
+                        </dl>
+                        <div className="application-links">
+                            {item.resume_link && <button type="button" onClick={() => downloadFile(item.resume_link, `resume_${item.first_name || 'applicant'}.pdf`)}>Resume <Download size={13} /></button>}
+                            {item.linkedin && <a href={item.linkedin} target="_blank" rel="noreferrer">LinkedIn <ExternalLink size={12} /></a>}
+                            {portfolioUrl && <a href={portfolioUrl} target="_blank" rel="noreferrer">Portfolio <ExternalLink size={12} /></a>}
+                        </div>
+                        <button type="button" className="application-details-button" onClick={() => openApplicationDetails(item)}>
+                            <Eye size={15} /> View application details
+                        </button>
+                    </section>
+
+                    <section className="application-card-evaluation">
+                        <label>
+                            <span>Interview status</span>
+                            <select value={draft.interview_status} onChange={(event) => updateApplicationDraft(item, 'interview_status', event.target.value)}>
+                                <option value="Pending Setup">Pending Setup</option>
+                                <option value="Scheduled">Scheduled</option>
+                                <option value="Interview Scheduled">Interview Scheduled</option>
+                                <option value="Completed">Completed</option>
+                                <option value="Interviewed">Interviewed</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>Interviewer</span>
+                            <input value={draft.interviewer} onChange={(event) => updateApplicationDraft(item, 'interviewer', event.target.value)} placeholder="Assign interviewer" />
+                        </label>
+                        <fieldset>
+                            <legend>Rating</legend>
+                            <div className="application-stars">
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <button type="button" key={star} className={star <= rating ? 'is-active' : ''} onClick={() => updateApplicationDraft(item, 'rating', star)} aria-label={`Rate ${star} out of 5`}>★</button>
+                                ))}
+                            </div>
+                        </fieldset>
+                    </section>
+
+                    <section className="application-card-decision">
+                        <label>
+                            <span>Final decision</span>
+                            <select value={draft.final_decision} onChange={(event) => updateApplicationDraft(item, 'final_decision', event.target.value)}>
+                                <option value="Under Review">Under Review</option>
+                                <option value="Selected">Selected</option>
+                                <option value="Rejected">Rejected</option>
+                                <option value="Not Selected">Not Selected</option>
+                                <option value="Waitlisted">Waitlisted</option>
+                            </select>
+                        </label>
+                        <div className={`application-decision-badge decision-${draft.final_decision.toLowerCase().replace(/\s+/g, '-')}`}>
+                            <span /> {draft.final_decision}
+                        </div>
+                        <button type="button" className="application-save-button" disabled={savingApplication === id} onClick={() => saveApplicationEvaluation(item)}>
+                            {savingApplication === id ? 'Saving…' : 'Save Evaluation'}
+                        </button>
+                    </section>
+                </article>
+            );
+        }
 
         return (
             <div key={item.id || item.row_index} style={{
@@ -455,7 +776,7 @@ const CareerAdmin = ({ tab = 'positions' }) => {
                         <p style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.3)', marginTop: '6px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{item.description}</p>
                     )}
                     
-                    {tab === 'candidates' && (
+                    {tab === 'applications' && (
                         <div style={{ marginTop: '12px', fontSize: '0.8125rem', color: 'rgba(255,255,255,0.5)' }}>
                             <p style={{ margin: '2px 0' }}><strong>Role:</strong> {item.roles}</p>
                             <p style={{ margin: '2px 0' }}><strong>Email:</strong> {item.email}</p>
@@ -470,11 +791,11 @@ const CareerAdmin = ({ tab = 'positions' }) => {
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '14px', marginTop: '14px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                     <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'rgba(255,255,255,0.3)' }}>
-                        {tab === 'candidates' ? `Rating: ${item.rating || 0}/10` : (item.is_open === false ? 'Closed' : '')}
+                        {tab === 'applications' ? `Rating: ${item.rating || 0}/5` : (item.is_open === false ? 'Closed' : '')}
                     </span>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        {tab === 'candidates' && (
-                            <button onClick={() => setDetailsModal({ open: true, candidate: item })} title="Review Application"
+                        {tab === 'applications' && (
+                            <button onClick={() => openApplicationDetails(item)} title="Review Application"
                                 style={{ padding: '8px', borderRadius: '8px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', color: '#3B82F6', cursor: 'pointer', display: 'flex', transition: 'all 0.2s' }}
                             ><Eye size={14} /></button>
                         )}
@@ -494,19 +815,26 @@ const CareerAdmin = ({ tab = 'positions' }) => {
         );
     };
 
+    const detailCandidate = detailsModal.candidate;
+    const detailFullName = detailCandidate
+        ? `${detailCandidate.first_name || ''} ${detailCandidate.last_name || ''}`.trim() || 'Unnamed applicant'
+        : '';
+    const detailAppliedAt = detailCandidate?.timestamp || detailCandidate?.created_at;
+    const detailPortfolio = detailCandidate?.portfolio_link || detailCandidate?.portfolio;
+    const detailAssessmentTiles = parseAssessmentAnswers(detailCandidate?.answers);
+
     return (
-        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px', flexWrap: 'wrap', gap: '16px' }}>
+        <div className={`career-admin-page ${tab === 'positions' ? 'career-positions-page' : ''} ${tab === 'applications' ? 'career-applications-page' : ''}`}>
+            <div className="career-admin-header">
                 <div>
-                    <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#fff', letterSpacing: '-0.02em', margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        {config.icon} {config.title}
-                    </h1>
-                    <p style={{ fontSize: '0.875rem', color: 'rgba(255,255,255,0.4)', marginTop: '6px' }}>{config.subtitle}</p>
+                    <span className="career-admin-eyebrow">{tab === 'positions' ? 'Talent operations' : 'Career management'}</span>
+                    <h1>{config.title}</h1>
+                    <p>{tab === 'positions'
+                        ? 'Manage and track open job postings across all departments. Monitor status and update role requirements in real time.'
+                        : config.subtitle}</p>
                 </div>
                 {config.createFn && (
-                    <button onClick={openCreateModal}
-                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '12px', fontSize: '0.875rem', fontWeight: 700, cursor: 'pointer', letterSpacing: '0.02em', boxShadow: '0 8px 20px color-mix(in srgb, var(--primary) 30%, transparent)' }}
-                    >
+                    <button className="career-admin-create" onClick={openCreateModal}>
                         <Plus size={18} /> Add New {config.itemLabel}
                     </button>
                 )}
@@ -529,40 +857,30 @@ const CareerAdmin = ({ tab = 'positions' }) => {
                 </div>
             ) : (
                 <>
-                    {(tab === 'candidates' || tab === 'enrollments') && (
-                        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '16px', padding: '16px', marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center', justifyContent: 'space-between' }}>
+                    {tab === 'applications' && (
+                        <div className="application-toolbar">
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', flex: 1 }}>
                                 <div style={{ position: 'relative', flex: '1 1 240px' }}>
-                                    <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.4)' }} />
-                                    <input type="text" placeholder="Search name, email, or role..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} style={{ ...inputStyle, paddingLeft: '38px', height: '42px' }} />
+                                    <Search size={16} className="application-search-icon" />
+                                    <input className="application-filter-control application-search" type="text" placeholder="Search name, email, or role..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                                 </div>
-                                <select value={filterDepartment} onChange={e => setFilterDepartment(e.target.value)} style={{ ...selectStyle, height: '42px', flex: '0 1 180px' }}>
+                                <select className="application-filter-control" value={filterDepartment} onChange={e => setFilterDepartment(e.target.value)}>
                                     <option value="All">All Departments</option>
                                     <option value="Tech">Tech</option>
                                     <option value="Content">Content</option>
                                     <option value="Media">Media</option>
                                     <option value="Operations">Operations</option>
                                 </select>
-                                <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...selectStyle, height: '42px', flex: '0 1 180px' }}>
+                                <select className="application-filter-control" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
                                     <option value="All">All Decisions</option>
-                                    {tab === 'candidates' ? (
-                                        <>
-                                            <option value="Under Review">Under Review</option>
-                                            <option value="Selected">Selected</option>
-                                            <option value="Not Selected">Not Selected</option>
-                                            <option value="Waitlisted">Waitlisted</option>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <option value="Pending">Pending</option>
-                                            <option value="Reviewed">Reviewed</option>
-                                            <option value="Selected">Selected</option>
-                                            <option value="Rejected">Rejected</option>
-                                        </>
-                                    )}
+                                    <option value="Under Review">Under Review</option>
+                                    <option value="Selected">Selected</option>
+                                    <option value="Rejected">Rejected</option>
+                                    <option value="Not Selected">Not Selected</option>
+                                    <option value="Waitlisted">Waitlisted</option>
                                 </select>
                             </div>
-                            <button onClick={() => setPdfModalOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '8px', height: '42px', padding: '0 16px', background: 'transparent', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', borderRadius: '10px', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', transition: '0.2s' }}>
+                            <button className="application-export-button" onClick={() => setPdfModalOpen(true)}>
                                 <Download size={16} /> Export PDF
                             </button>
                         </div>
@@ -573,6 +891,8 @@ const CareerAdmin = ({ tab = 'positions' }) => {
                             {config.icon && React.cloneElement(config.icon, { size: 40, style: { color: 'rgba(255,255,255,0.15)', marginBottom: '12px' } })}
                             <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.875rem', fontWeight: 600 }}>No {config.itemLabel.toLowerCase()}s found.</p>
                         </div>
+                    ) : tab === 'form_gates' ? (
+                        renderFormGateSettings()
                     ) : tab === 'offers' ? (
                         <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -613,16 +933,23 @@ const CareerAdmin = ({ tab = 'positions' }) => {
                             </table>
                         </div>
                     ) : (
-                        <div style={{ display: 'grid', gridTemplateColumns: tab === 'form_gates' ? 'repeat(auto-fill, minmax(400px, 1fr))' : 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+                        <div className={`career-admin-grid ${tab === 'form_gates' ? 'is-wide' : ''} ${tab === 'applications' ? 'is-applications' : ''}`}>
                             {filteredItems.map(item => renderItemCard(item))}
+                            {tab === 'positions' && (
+                                <button type="button" className="career-position-new-card" onClick={openCreateModal}>
+                                    <Plus size={33} />
+                                    <strong>Create New Position</strong>
+                                    <span>Add another role to the Career portal.</span>
+                                </button>
+                            )}
                         </div>
                     )}
                 </>
             )}
 
             {formModalOpen && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
-                    <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', width: '100%', maxWidth: '560px', maxHeight: '90vh', overflowY: 'auto', padding: '32px' }}>
+                <div className="career-admin-modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
+                    <div className="career-admin-modal" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', width: '100%', maxWidth: '560px', maxHeight: '90vh', overflowY: 'auto', padding: '32px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <Sparkles size={20} style={{ color: 'var(--primary)' }} />
@@ -644,8 +971,8 @@ const CareerAdmin = ({ tab = 'positions' }) => {
             )}
 
             {deleteModal.open && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
-                    <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', maxWidth: '420px', width: '100%', padding: '32px' }}>
+                <div className="career-admin-modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
+                    <div className="career-admin-modal" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', maxWidth: '420px', width: '100%', padding: '32px' }}>
                         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
                             <Trash2 size={40} style={{ color: '#EF4444', marginBottom: '16px' }} />
                             <h3 style={{ fontSize: '1.125rem', fontWeight: 800, color: '#fff', marginBottom: '8px' }}>Delete {config.itemLabel}?</h3>
@@ -660,8 +987,8 @@ const CareerAdmin = ({ tab = 'positions' }) => {
             )}
 
             {pdfModalOpen && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
-                    <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', maxWidth: '420px', width: '100%', padding: '32px' }}>
+                <div className="app-modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
+                    <div className="app-modal" style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', maxWidth: '420px', width: '100%', padding: '32px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                             <h2 style={{ fontSize: '1.125rem', fontWeight: 800, color: '#fff', margin: 0 }}>Export Data to PDF</h2>
                             <button onClick={() => setPdfModalOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }}><X size={18} /></button>
@@ -681,10 +1008,11 @@ const CareerAdmin = ({ tab = 'positions' }) => {
                                 <FieldLabel>Filter by Decision</FieldLabel>
                                 <select value={pdfConfig.status} onChange={e => setPdfConfig(p => ({...p, status: e.target.value}))} style={selectStyle}>
                                     <option value="All">All Applications</option>
-                                    {tab === 'candidates' ? (
+                                    {tab === 'applications' ? (
                                         <>
                                             <option value="Under Review">Under Review</option>
                                             <option value="Selected">Selected</option>
+                                            <option value="Rejected">Rejected</option>
                                             <option value="Not Selected">Not Selected</option>
                                             <option value="Waitlisted">Waitlisted</option>
                                         </>
@@ -708,61 +1036,99 @@ const CareerAdmin = ({ tab = 'positions' }) => {
             )}
 
             {detailsModal.open && detailsModal.candidate && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
-                    <div style={{ background: '#111', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '24px', maxWidth: '800px', width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.8)' }}>
-                        <div style={{ padding: '24px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: 'rgba(255,255,255,0.02)' }}>
-                            <div>
-                                <h2 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#fff', margin: '0 0 6px 0', letterSpacing: '-0.02em' }}>{detailsModal.candidate.first_name} {detailsModal.candidate.last_name}</h2>
-                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: 'var(--primary)', background: 'color-mix(in srgb, var(--primary) 15%, transparent)', padding: '4px 10px', borderRadius: '999px', textTransform: 'uppercase' }}>{detailsModal.candidate.roles}</span>
-                                    <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: 'rgba(255,255,255,0.5)', background: 'rgba(255,255,255,0.06)', padding: '4px 10px', borderRadius: '999px' }}>{detailsModal.candidate.department}</span>
-                                </div>
-                            </div>
-                            <button onClick={() => setDetailsModal({ open: false, candidate: null })} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)', borderRadius: '12px', padding: '10px', cursor: 'pointer', transition: '0.2s' }}><X size={20} /></button>
-                        </div>
-                        <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                                    <FieldLabel>Email</FieldLabel>
-                                    <div style={{ fontSize: '0.875rem', color: '#e2e8f0', wordBreak: 'break-all' }}>{detailsModal.candidate.email}</div>
-                                </div>
-                                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                                    <FieldLabel>Phone / Contact</FieldLabel>
-                                    <div style={{ fontSize: '0.875rem', color: '#e2e8f0' }}>{detailsModal.candidate.phone || 'N/A'}</div>
-                                </div>
-                                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                                    <FieldLabel>Portfolio</FieldLabel>
-                                    <div style={{ fontSize: '0.875rem', color: '#3B82F6', wordBreak: 'break-all' }}>
-                                        {detailsModal.candidate.portfolio_link ? <a href={detailsModal.candidate.portfolio_link} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>View Portfolio <ExternalLink size={12}/></a> : 'N/A'}
+                <div className="application-detail-overlay" onMouseDown={(event) => {
+                    if (event.target === event.currentTarget) closeApplicationDetails();
+                }}>
+                    <div className="application-detail-modal" role="dialog" aria-modal="true" aria-labelledby="application-detail-title">
+                        <header className="application-detail-topbar">
+                            <strong>Application Details</strong>
+                            <button type="button" onClick={closeApplicationDetails} aria-label="Close application details"><X size={20} /></button>
+                        </header>
+
+                        <div className="application-detail-body">
+                            <div className="application-detail-hero">
+                                <div className="application-detail-identity">
+                                    <div className="application-detail-avatar">
+                                        {detailFullName.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase()}
+                                    </div>
+                                    <div>
+                                        <h2 id="application-detail-title">{detailFullName}</h2>
+                                        <p>{detailCandidate.roles || 'Role not specified'}{detailCandidate.department ? ` · ${detailCandidate.department}` : ''}</p>
                                     </div>
                                 </div>
+                                <div className="application-detail-pills">
+                                    {detailCandidate.department && <span>{detailCandidate.department}</span>}
+                                    <span className={`decision-${String(detailCandidate.final_decision || 'Under Review').toLowerCase().replace(/\s+/g, '-')}`}>
+                                        {detailCandidate.final_decision || 'Under Review'}
+                                    </span>
+                                </div>
                             </div>
-                            
-                            {detailsModal.candidate.why_join && (
-                                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                    <FieldLabel>Why Join Us?</FieldLabel>
-                                    <p style={{ fontSize: '0.875rem', color: '#cbd5e1', lineHeight: '1.6', margin: '8px 0 0', whiteSpace: 'pre-wrap' }}>
-                                        {detailsModal.candidate.why_join}
-                                    </p>
-                                </div>
-                            )}
 
-                            {detailsModal.candidate.answers && (
-                                <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                    <FieldLabel>Application Answers</FieldLabel>
-                                    <pre style={{ fontSize: '0.8125rem', color: '#94a3b8', margin: '8px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}>
-                                        {typeof detailsModal.candidate.answers === 'string' ? detailsModal.candidate.answers : JSON.stringify(detailsModal.candidate.answers, null, 2)}
-                                    </pre>
+                            <div className="application-detail-grid">
+                                <div className="application-detail-tile">
+                                    <span>Applied</span>
+                                    <strong>{detailAppliedAt ? new Date(detailAppliedAt).toLocaleString('en-IN') : '—'}</strong>
                                 </div>
+                                <div className="application-detail-tile">
+                                    <span>City</span>
+                                    <strong>{detailCandidate.city || '—'}</strong>
+                                </div>
+                                <div className="application-detail-tile">
+                                    <span>Email</span>
+                                    <strong>{detailCandidate.email ? <a href={`mailto:${detailCandidate.email}`}>{detailCandidate.email}</a> : '—'}</strong>
+                                </div>
+                                <div className="application-detail-tile">
+                                    <span>Phone</span>
+                                    <strong>{detailCandidate.phone || '—'}</strong>
+                                </div>
+                                <div className="application-detail-tile is-wide">
+                                    <span>Links</span>
+                                    <strong className="application-detail-links">
+                                        {detailCandidate.resume_link && <button type="button" onClick={() => downloadFile(detailCandidate.resume_link, `resume_${detailCandidate.first_name || 'applicant'}.pdf`)}>Resume</button>}
+                                        {detailCandidate.linkedin && <a href={detailCandidate.linkedin} target="_blank" rel="noreferrer">LinkedIn <ExternalLink size={12} /></a>}
+                                        {detailPortfolio && <a href={detailPortfolio} target="_blank" rel="noreferrer">Portfolio <ExternalLink size={12} /></a>}
+                                        {!detailCandidate.resume_link && !detailCandidate.linkedin && !detailPortfolio && '—'}
+                                    </strong>
+                                </div>
+                            </div>
+
+                            <div className="application-detail-tabs" role="tablist" aria-label="Application detail sections">
+                                <button type="button" role="tab" aria-selected={detailsTab === 'summary'} className={detailsTab === 'summary' ? 'is-active' : ''} onClick={() => setDetailsTab('summary')}>Summary</button>
+                                <button type="button" role="tab" aria-selected={detailsTab === 'assessment'} className={detailsTab === 'assessment' ? 'is-active' : ''} onClick={() => setDetailsTab('assessment')}>Assessment</button>
+                            </div>
+
+                            {detailsTab === 'summary' ? (
+                                <section className="application-detail-panel" role="tabpanel">
+                                    <div className="application-detail-tile is-wide">
+                                        <span>Why join Tiesverse?</span>
+                                        <p>{detailCandidate.why_join || 'No summary was provided.'}</p>
+                                    </div>
+                                </section>
+                            ) : (
+                                <section className="application-detail-panel application-assessment-list" role="tabpanel">
+                                    {detailAssessmentTiles.length ? detailAssessmentTiles.map((tile, index) => (
+                                        <div className="application-detail-tile is-wide" key={`${tile.question}-${index}`}>
+                                            <span className="application-assessment-question">{tile.question}</span>
+                                            <p>{tile.answer}</p>
+                                        </div>
+                                    )) : (
+                                        <div className="application-detail-tile is-wide">
+                                            <span>Assessment</span>
+                                            <p>No assessment data was provided.</p>
+                                        </div>
+                                    )}
+                                </section>
                             )}
                         </div>
-                        <div style={{ padding: '16px 24px', borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)', display: 'flex', justifyContent: 'flex-end' }}>
-                            {detailsModal.candidate.resume_link && (
-                                <button onClick={() => downloadFile(detailsModal.candidate.resume_link, `resume_${detailsModal.candidate.first_name}.pdf`)} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--primary)', color: '#000', padding: '10px 20px', borderRadius: '10px', fontSize: '0.875rem', fontWeight: 800, cursor: 'pointer', border: 'none' }}>
+
+                        <footer className="application-detail-footer">
+                            <span>Rating: {detailCandidate.rating || 0}/5</span>
+                            {detailCandidate.resume_link && (
+                                <button type="button" onClick={() => downloadFile(detailCandidate.resume_link, `resume_${detailCandidate.first_name || 'applicant'}.pdf`)}>
                                     <Download size={16} /> Download Resume
                                 </button>
                             )}
-                        </div>
+                        </footer>
                     </div>
                 </div>
             )}

@@ -140,7 +140,7 @@ Admin-panel-ties/
 |---|---|---|---|
 | Article | Department | departments | articles |
 | Guest | EventSpeaker | event_speakers | guests |
-| Workshop | EventRegistration | event_registrations | workshops |
+| Webinar / Workshop listing | EventRegistration | event_registrations | workshops |
 | YouTubeVideo | TeamMemberSocial | team_member_socials | youtube_videos |
 
 Aliases (`Article = Department`, `Guest = EventSpeaker`, etc.) keep old code working.
@@ -245,7 +245,7 @@ AWS SES sends "Thank you for applying" email from `careers@tiesverse.com` on eve
 | GET/POST | `/api/landing/departments/` | Articles CRUD |
 | GET/POST | `/api/landing/team_members/` | Team members CRUD |
 | GET/POST | `/api/landing/event_speakers/` | Guests CRUD |
-| GET/POST | `/api/landing/event_registrations/` | Workshops CRUD |
+| GET/POST | `/api/landing/event_registrations/` | Webinar & workshop listing CRUD |
 | GET/POST | `/api/landing/team_member_socials/` | YouTube videos CRUD |
 | GET/POST | `/api/landing/webinars/` | Webinar listings CRUD |
 
@@ -263,6 +263,9 @@ AWS SES sends "Thank you for applying" email from `careers@tiesverse.com` on eve
 |---|---|---|---|
 | POST | `/api/webinar/register/` | None (public) | Free registration → Turso + SES email |
 | GET | `/api/webinar/registrations/` | JWT | Admin: list all Turso registrations |
+| GET/POST | `/api/webinar/coupons/` | JWT | Coupon management |
+| PATCH/DELETE | `/api/webinar/coupons/{id}/` | JWT | Update, pause, or delete coupon |
+| POST | `/api/webinar/validate-coupon/` | Public | Validate event-specific coupon |
 | POST | `/api/webinar/create-order/` | None (public) | **Razorpay**: create order for paid event |
 | POST | `/api/webinar/verify-payment/` | None (public) | **Razorpay**: verify HMAC after checkout |
 | POST | `/api/webinar/razorpay-webhook/` | Webhook sig | **Razorpay**: server-side event handler |

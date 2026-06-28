@@ -1,12 +1,12 @@
-import React, { createContext, useState, useEffect } from 'react';
+import { createContext, useState, useEffect } from 'react';
 
 export const ThemeContext = createContext();
 
 export const ThemeProvider = ({ children }) => {
-  // Default theme is dark as per specifications
+  // The management suite is light by default; users can still persist a dark preference.
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem('theme');
-    return saved ? saved : 'dark';
+    return saved ? saved : 'light';
   });
 
   const toggleTheme = () => {
@@ -29,7 +29,7 @@ export const ThemeProvider = ({ children }) => {
   }, [theme]);
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
       {children}
     </ThemeContext.Provider>
   );

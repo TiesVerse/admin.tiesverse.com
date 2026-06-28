@@ -179,8 +179,8 @@ const UserManagement = () => {
       </div>
 
       {isModalOpen && (
-        <div style={modalOverlayStyle}>
-          <div style={modalContentStyle}>
+        <div className="app-modal-overlay" style={modalOverlayStyle}>
+          <div className="app-modal user-form-modal" style={modalContentStyle}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <h2>{isEditing ? 'Edit User' : 'Add New User'}</h2>
               <button onClick={handleCloseModal} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>

@@ -1,172 +1,93 @@
-import React, { useContext } from 'react';
+import { useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { LogOut, Menu, Moon, Settings, Sun } from 'lucide-react';
 import { AuthContext } from '../../context/AuthContext';
 import { ThemeContext } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
-import { LogOut, Sun, Moon, Menu, Settings } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 
 const Navbar = ({ activePortal, setActivePortal, setIsSidebarOpen }) => {
-  const { user, logoutUser } = useContext(AuthContext);
+  const { user, profile, logoutUser } = useContext(AuthContext);
   const { theme, toggleTheme } = useContext(ThemeContext);
   const { hasAnyPermission, isSuperuser } = usePermissions();
   const navigate = useNavigate();
 
-  const canSeeTiesverse = hasAnyPermission([
-    'view_event', 'add_event', 'change_event', 'delete_event',
-    'view_article', 'add_article', 'change_article', 'delete_article',
-    'view_youtubevideo', 'view_workshop', 'view_teammember', 'view_guest',
-  ]);
-
-  const canSeeCareer = hasAnyPermission([
-    'view_position', 'add_position', 'change_position', 'delete_position',
-    'view_enrollment', 'view_offerletter',
-  ]);
-
-  const canSeeWebinar = hasAnyPermission([
-    'view_webinarevent', 'add_webinarevent', 'change_webinarevent',
-    'view_registrationform', 'view_calendarevent',
-  ]);
-
-  const portalButtons = [
-    { key: 'tiesverse', label: 'Tiesverse Portal', show: canSeeTiesverse },
-    { key: 'career', label: 'Career Portal', show: canSeeCareer },
-    { key: 'webinar', label: 'Webinar Portal', show: canSeeWebinar },
+  const portals = [
+    {
+      key: 'tiesverse',
+      label: 'Tiesverse Portal',
+      show: hasAnyPermission([
+        'view_event', 'add_event', 'change_event', 'delete_event',
+        'view_article', 'add_article', 'change_article', 'delete_article',
+        'view_youtubevideo', 'view_workshop', 'view_teammember', 'view_guest',
+      ]),
+    },
+    {
+      key: 'career',
+      label: 'Career Portal',
+      show: hasAnyPermission([
+        'view_position', 'add_position', 'change_position', 'delete_position',
+        'view_enrollment', 'view_offerletter',
+      ]),
+    },
+    {
+      key: 'webinar',
+      label: 'Webinar Portal',
+      show: hasAnyPermission([
+        'view_webinarevent', 'add_webinarevent', 'change_webinarevent',
+        'view_registrationform', 'view_calendarevent',
+      ]),
+    },
+    { key: 'certificates', label: 'Certificate Generator', show: isSuperuser },
     { key: 'accounts', label: 'Users & Permissions', show: isSuperuser },
   ];
 
+  const displayName = profile?.display_name || user?.username || 'Admin';
+  const visiblePortals = portals
+    .filter((portal) => portal.show)
+    .sort((a, b) => Number(b.key === activePortal) - Number(a.key === activePortal));
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
+
   return (
-    <header 
-      className="h-[70px] w-full flex items-center justify-between px-4 md:px-8 transition-colors duration-200"
-      style={{
-        background: 'var(--surface)',
-        borderBottom: '1px solid var(--border)',
-      }}
-    >
-      <div className="flex items-center gap-3">
-        {/* Hamburger Menu on Mobile */}
-        <button 
+    <header className="portal-topbar">
+      <div className="portal-topbar-left">
+        <button
+          type="button"
           onClick={() => setIsSidebarOpen(true)}
-          className="md:hidden p-2 rounded-lg cursor-pointer"
-          style={{
-            color: 'var(--text-muted)',
-          }}
+          className="portal-menu-button"
+          aria-label="Open navigation"
         >
           <Menu size={22} />
         </button>
-
-        {/* Portal Switchers */}
-        <div className="hidden sm:flex gap-2">
-          {portalButtons.filter(p => p.show).map(portal => (
-            <button 
+        <nav className="portal-switcher" aria-label="Switch portal">
+          {visiblePortals.map((portal) => (
+            <button
+              type="button"
               key={portal.key}
-              className="cursor-pointer"
-              style={{
-                padding: '8px 16px',
-                borderRadius: '10px',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                transition: 'all 0.2s ease',
-                border: 'none',
-                ...(activePortal === portal.key ? {
-                  background: 'var(--primary)',
-                  color: '#FFFFFF',
-                  boxShadow: '0 4px 12px color-mix(in srgb, var(--primary) 35%, transparent)',
-                } : {
-                  background: 'transparent',
-                  color: 'var(--text-muted)',
-                })
-              }}
-              onMouseEnter={(e) => {
-                if (activePortal !== portal.key) {
-                  e.currentTarget.style.color = 'var(--primary)';
-                  e.currentTarget.style.background = 'color-mix(in srgb, var(--primary) 8%, transparent)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (activePortal !== portal.key) {
-                  e.currentTarget.style.color = 'var(--text-muted)';
-                  e.currentTarget.style.background = 'transparent';
-                }
-              }}
+              className={activePortal === portal.key ? 'is-active' : ''}
               onClick={() => setActivePortal(portal.key)}
             >
               {portal.label}
             </button>
           ))}
-        </div>
-
-        {/* Portal title indicator for very small screens */}
-        <span 
-          className="sm:hidden font-bold uppercase tracking-wider"
-          style={{ 
-            color: 'var(--primary)',
-            fontSize: '0.875rem',
-          }}
-        >
-          {activePortal}
-        </span>
+        </nav>
       </div>
 
-      {/* Profile & Dark/Light Mode Actions */}
-      <div className="flex items-center gap-4">
-        {/* Settings Button */}
-        <button 
-          onClick={() => navigate('/accounts/settings')}
-          className="p-2 rounded-lg cursor-pointer"
-          style={{
-            color: 'var(--text-muted)',
-            transition: 'all 0.2s ease',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--primary)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-          title="Settings"
-        >
-          <Settings size={20} />
+      <div className="portal-topbar-actions">
+        <button type="button" onClick={() => navigate('/accounts/settings')} aria-label="Profile settings" title="Settings">
+          <Settings size={19} />
         </button>
-
-        {/* Theme Toggler */}
-        <button 
-          onClick={toggleTheme}
-          className="p-2 rounded-lg cursor-pointer"
-          style={{
-            color: 'var(--text-muted)',
-            transition: 'all 0.2s ease',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--primary)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-          title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-        >
-          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+        <button type="button" onClick={toggleTheme} aria-label="Toggle theme" title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
+          {theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}
         </button>
-
-        {/* User Details */}
-        <div 
-          className="flex items-center gap-3 pl-3"
-          style={{ borderLeft: '1px solid var(--border)' }}
-        >
-          <span 
-            className="hidden md:inline font-medium"
-            style={{ 
-              fontSize: '0.9375rem',
-              color: 'var(--text-main)',
-            }}
-          >
-            {user?.username || 'Admin'}
-          </span>
-          <button 
-            className="p-2 rounded-lg cursor-pointer"
-            onClick={logoutUser}
-            title="Log Out"
-            style={{
-              color: 'var(--text-muted)',
-              transition: 'color 0.2s ease',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#EF4444'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-          >
-            <LogOut size={18} />
-          </button>
-        </div>
+        <span className="portal-user-avatar" title={displayName}>{initials || 'TV'}</span>
+        <button type="button" onClick={logoutUser} aria-label="Log out" title="Log out">
+          <LogOut size={18} />
+        </button>
       </div>
     </header>
   );

@@ -1,10 +1,11 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+export const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 // In-memory token store — set by AuthContext on login/logout.
 // Never persisted to localStorage so the session ends on page refresh.
 let _accessToken = null;
 export const setApiToken = (token) => { _accessToken = token; };
 const getToken = () => _accessToken;
+export const getApiToken = getToken;
 
 const publicFetch = async (path) => {
     // Django viewsets usually require a trailing slash
@@ -116,12 +117,12 @@ export const createEventRegistration = (data) => adminFetch('/api/landing/event_
 export const updateEventRegistration = (id, data) => adminFetch(`/api/landing/event_registrations/${id}`, 'PATCH', data);
 export const deleteEventRegistration = (id) => adminFetch(`/api/landing/event_registrations/${id}`, 'DELETE');
 
-// CAREER (Portal) — candidates sourced from Cloudflare D1
+// CAREER (Portal) — candidates sourced from the hosted ATS
 export const getPositions = () => adminFetch('/api/career/positions').catch(() => []);
 export const createPosition = (data) => adminFetch('/api/career/positions', 'POST', data);
 export const updatePosition = (id, data) => adminFetch(`/api/career/positions/${id}`, 'PATCH', data);
 export const deletePosition = (id) => adminFetch(`/api/career/positions/${id}`, 'DELETE');
-// getCandidates → EnrollmentViewSet (returns plain array from D1)
+// Applications are returned as a plain hosted-ATS array.
 export const getCandidates = () => adminFetch('/api/career/enrollments').catch(() => []);
 export const getEnrollments = getCandidates;
 export const updateCandidateStatus = (id, data) => adminFetch(`/api/career/enrollments/${id}/update_status`, 'PATCH', data);
@@ -144,8 +145,16 @@ export const getWebinarEvents = () => adminFetch('/api/webinar/events').catch(()
 export const createWebinarEvent = (data) => adminFetch('/api/webinar/events', 'POST', data);
 export const getWebinarRegistrations = () =>
   adminFetch('/api/webinar/registrations')
-    .then(r => (r && r.rows) ? r.rows : (Array.isArray(r) ? r : []))
-    .catch(() => []);
+    .then(r => (r?.error ? r : ((r && r.rows) ? r.rows : (Array.isArray(r) ? r : []))))
+    .catch(error => ({ error: error.message || 'Unable to load registrations.' }));
+export const getCoupons = () =>
+  adminFetch('/api/webinar/coupons')
+    .then(r => (r?.error ? r : (r?.rows || [])))
+    .catch(error => ({ error: error.message || 'Unable to load coupons.' }));
+export const createCoupon = (data) => adminFetch('/api/webinar/coupons', 'POST', data);
+export const updateCoupon = (id, data) => adminFetch(`/api/webinar/coupons/${id}`, 'PATCH', data);
+export const deleteCoupon = (id) => adminFetch(`/api/webinar/coupons/${id}`, 'DELETE');
+export const validateCoupon = (data) => adminFetch('/api/webinar/validate-coupon', 'POST', data);
 
 // SITE SETTINGS
 export const getSettings = () => adminFetch('/api/settings').catch(() => []);
